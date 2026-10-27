@@ -27,7 +27,7 @@ and every intermediate artifact in `runs/<run_id>/`.
 With a real model (any OpenAI-compatible endpoint with tool calling):
 
 ```bash
-cp .env.example .env   # fill in base URL, key, model; set budgets
+cp .env.example .env   # put your key; base URL and model are prefilled
 uv run --env-file .env overnight run --llm http --vault "/path/to/your/vault"
 ```
 

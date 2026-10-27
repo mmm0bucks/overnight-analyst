@@ -1,100 +1,96 @@
-"""A bounded tool-calling loop for a single stage."""
+"""Budget and the bounded tool-calling loop that runs one stage."""
 
 from __future__ import annotations
 
 import json
-import re
+import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from overnight.budget import Budget
-from overnight.llm import LLM, Message
-from overnight.tools import SourceLog, Tool, render_result
+from overnight.llm import LLM
+from overnight.stages import Stage
+from overnight.tools import Toolbox
 
-T = TypeVar("T", bound=BaseModel)
-EventSink = Callable[[dict[str, Any]], None]
+
+@dataclass(frozen=True)
+class Limits:
+    max_tokens: int = 100_000  # per run
+    max_tool_calls: int = 60
+    max_seconds: float = 900
+    max_sql_per_stage: int = 5
+    max_sql_rows: int = 1000
+
+
+class BudgetExceeded(RuntimeError):
+    pass
 
 
 class StageFailed(RuntimeError):
     pass
 
 
+@dataclass
+class Budget:
+    limits: Limits
+    tokens: int = 0
+    tool_calls: int = 0
+    started: float = field(default_factory=time.monotonic)
+
+    def check(self) -> None:
+        lim, secs = self.limits, time.monotonic() - self.started
+        if self.tokens >= lim.max_tokens:
+            raise BudgetExceeded(f"tokens {self.tokens}/{lim.max_tokens}")
+        if self.tool_calls >= lim.max_tool_calls:
+            raise BudgetExceeded(f"tool calls {self.tool_calls}/{lim.max_tool_calls}")
+        if secs >= lim.max_seconds:
+            raise BudgetExceeded(f"time {secs:.0f}s/{lim.max_seconds:.0f}s")
+
+    def usage(self) -> dict[str, Any]:
+        secs = round(time.monotonic() - self.started, 1)
+        return {"tokens": self.tokens, "tool_calls": self.tool_calls, "seconds": secs}
+
+
 def extract_json(text: str) -> Any:
-    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.S)
-    raw = fenced.group(1) if fenced else text[text.find("{") : text.rfind("}") + 1]
-    if not raw:
-        raise ValueError("no JSON object found in model output")
-    return json.loads(raw)
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("no JSON object in model output")
+    return json.loads(text[start : end + 1])
 
 
-def run_stage(
-    *,
-    stage: str,
-    llm: LLM,
-    system: str,
-    user: str,
-    tools: list[Tool],
-    schema: type[T],
-    budget: Budget,
-    sources: SourceLog,
-    emit: EventSink,
-    max_turns: int = 12,
-) -> T:
-    by_name = {t.name: t for t in tools}
-    messages: list[Message] = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
+def run_stage(stage: Stage, llm: LLM, user: str, box: Toolbox, budget: Budget,
+              emit: Callable[[dict[str, Any]], None], max_turns: int = 12) -> BaseModel:
+    messages: list[dict[str, Any]] = [{"role": "system", "content": stage.system()},
+                                      {"role": "user", "content": user}]
+    tools = box.schemas(stage.tools)
     repaired = False
-    for turn in range(max_turns):
+    for _ in range(max_turns):
         budget.check()
-        resp = llm.complete(messages, [t.schema() for t in tools])
-        budget.add_llm(resp.tokens)
-        emit({"event": "llm", "stage": stage, "turn": turn, "tokens": resp.tokens,
-              "tool_calls": [c.name for c in resp.tool_calls]})
+        resp = llm.complete(messages, tools)
+        budget.tokens += resp.tokens
+        emit({"event": "llm", "stage": stage.name, "tokens": resp.tokens,
+              "tools": [c.name for c in resp.tool_calls]})
         if resp.tool_calls:
-            messages.append({
-                "role": "assistant", "content": resp.content or None,
-                "tool_calls": [
-                    {"id": c.id, "type": "function",
-                     "function": {"name": c.name, "arguments": json.dumps(c.arguments)}}
-                    for c in resp.tool_calls
-                ],
-            })
-            for call in resp.tool_calls:
+            messages.append({"role": "assistant", "content": resp.content or None,
+                             "tool_calls": [c.as_message() for c in resp.tool_calls]})
+            for c in resp.tool_calls:
                 budget.check()
-                budget.add_tool_call()
-                messages.append({"role": "tool", "tool_call_id": call.id,
-                                 "content": _dispatch(stage, call.name, call.arguments,
-                                                      by_name, sources, emit)})
+                budget.tool_calls += 1
+                result = box.call(stage.tools, c.name, c.arguments)
+                emit({"event": "tool", "stage": stage.name, "tool": c.name,
+                      "result": result[:200]})
+                messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
             continue
         try:
-            return schema.model_validate(extract_json(resp.content))
+            return stage.schema.model_validate(extract_json(resp.content))
         except (ValueError, ValidationError) as e:
             if repaired:
-                raise StageFailed(f"{stage}: invalid output after repair: {e}") from e
+                raise StageFailed(f"{stage.name}: invalid output after repair: {e}") from e
             repaired = True
-            emit({"event": "repair", "stage": stage, "error": str(e)[:300]})
-            messages.append({"role": "assistant", "content": resp.content})
-            messages.append({"role": "user", "content":
-                             f"Your output did not match the contract: {e}. "
-                             "Reply with the corrected JSON object only."})
-    raise StageFailed(f"{stage}: no final answer after {max_turns} turns")
-
-
-def _dispatch(stage: str, name: str, args: dict[str, Any], by_name: dict[str, Tool],
-              sources: SourceLog, emit: EventSink) -> str:
-    tool = by_name.get(name)
-    if tool is None:
-        emit({"event": "tool_denied", "stage": stage, "tool": name})
-        return json.dumps({"error": f"tool '{name}' is not available in stage '{stage}'"})
-    try:
-        result = tool.fn(**args)
-    except Exception as e:  # tool errors go back to the model, not up the stack
-        emit({"event": "tool_error", "stage": stage, "tool": name, "error": str(e)[:300]})
-        return json.dumps({"error": f"{type(e).__name__}: {e}"})
-    src = sources.add(name, args, result, stage)
-    emit({"event": "tool", "stage": stage, "tool": name, "source": src.id})
-    return render_result(src)
+            emit({"event": "repair", "stage": stage.name, "error": str(e)[:300]})
+            messages += [{"role": "assistant", "content": resp.content},
+                         {"role": "user", "content": f"Output broke the contract: {e}. "
+                                                     "Reply with the corrected JSON only."}]
+    raise StageFailed(f"{stage.name}: no final answer after {max_turns} turns")

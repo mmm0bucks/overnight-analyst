@@ -1,14 +1,15 @@
-"""Command line entry point: `overnight init-demo` and `overnight run`."""
+"""`overnight init-demo` builds the synthetic warehouse; `overnight run` runs one night."""
 
 from __future__ import annotations
 
 import argparse
-import sys
+import json
+import os
 from datetime import date
 from pathlib import Path
 
 from overnight import demo_data
-from overnight.config import Paths, limits_from_env, llm_from_env
+from overnight.agent import Limits
 from overnight.llm import LLM, HttpLLM
 from overnight.offline import OfflinePolicy
 from overnight.orchestrator import run
@@ -16,43 +17,49 @@ from overnight.orchestrator import run
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="overnight")
-    p.add_argument("--root", type=Path, default=Path.cwd(),
-                   help="where runs/, state/ and vault/ live (default: cwd)")
-    p.add_argument("--workspace", type=Path, default=None,
-                   help="inputs folder (default: <root>/demo)")
-    p.add_argument("--vault", type=Path, default=None,
-                   help="Obsidian vault to publish into (default: <root>/vault)")
-    sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("init-demo", help="generate the synthetic warehouse")
-    r = sub.add_parser("run", help="run the overnight pipeline once")
-    r.add_argument("--llm", choices=["offline", "http"], default="offline")
-    r.add_argument("--today", type=date.fromisoformat, default=date.today())
+    p.add_argument("cmd", choices=["init-demo", "run"])
+    p.add_argument("--root", type=Path, default=Path.cwd(), help="where runs/ and state/ live")
+    p.add_argument("--workspace", type=Path, help="inputs (default: <root>/demo)")
+    p.add_argument("--vault", type=Path, help="Obsidian vault (default: <root>/vault)")
+    p.add_argument("--llm", choices=["offline", "http"], default="offline")
+    p.add_argument("--today", type=date.fromisoformat, default=date.today())
     a = p.parse_args(argv)
-
     ws = a.workspace or a.root / "demo"
-    paths = Paths.under(a.root, ws)
-    if a.vault:
-        paths = Paths(workspace=ws, runs=paths.runs, state=paths.state, vault=a.vault)
 
     if a.cmd == "init-demo":
-        db = demo_data.build(ws / "warehouse.duckdb")
-        print(f"synthetic warehouse written to {db}")
+        print("warehouse:", demo_data.build(ws / "warehouse.duckdb"))
         return 0
 
-    llm: LLM
+    llm: LLM = OfflinePolicy()
     ping = None
     if a.llm == "http":
-        http = HttpLLM(llm_from_env())
+        env = {k: os.getenv(f"OVERNIGHT_LLM_{k}") for k in ("BASE_URL", "API_KEY", "MODEL")}
+        if not all(env.values()):
+            p.error("set OVERNIGHT_LLM_BASE_URL, _API_KEY and _MODEL (see .env.example)")
+        http = HttpLLM(env["BASE_URL"] or "", env["API_KEY"] or "", env["MODEL"] or "")
         llm, ping = http, http.ping
-    else:
-        llm = OfflinePolicy()
-    res = run(paths=paths, llm=llm, limits=limits_from_env(), today=a.today, ping=ping)
+    # Lifetime cap for a prepaid key: tokens spent by all http runs live in state/spend.json.
+    # ponytail: checked between calls, so one call (<= ~50k tokens) can overshoot the cap.
+    spend_file = a.root / "state" / "spend.json"
+    spent = json.loads(spend_file.read_text())["tokens"] if spend_file.exists() else 0
+    total = int(os.getenv("OVERNIGHT_TOTAL_TOKENS", 0))  # 0 = no lifetime cap
+    per_run = int(os.getenv("OVERNIGHT_MAX_TOKENS", Limits.max_tokens))
+    if a.llm == "http" and total:
+        if spent >= total:
+            p.error(f"token budget of this key is spent: {spent}/{total}")
+        per_run = min(per_run, total - spent)
+    limits = Limits(max_tokens=per_run,
+                    max_tool_calls=int(os.getenv("OVERNIGHT_MAX_TOOL_CALLS", 60)),
+                    max_seconds=float(os.getenv("OVERNIGHT_MAX_SECONDS", 900)))
+
+    res = run(ws, a.root, a.vault or a.root / "vault", llm, limits, a.today, ping)
+    if a.llm == "http":
+        used = json.loads((res.run_dir / "finalize.json").read_text())["usage"]["tokens"]
+        spend_file.parent.mkdir(exist_ok=True)
+        spend_file.write_text(json.dumps({"tokens": spent + used}))
+        print(f"tokens: this run {used}, total {spent + used}" + (f"/{total}" if total else ""))
     print(f"run {res.run_id}: {res.status}")
     for g in res.gates:
         print(f"  [{'x' if g.passed else ' '}] {g.name} {g.detail}")
-    print(f"report: {res.report}")
+    print("report:", res.report)
     return 0 if res.status == "ok" else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

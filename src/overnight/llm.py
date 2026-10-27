@@ -1,9 +1,4 @@
-"""LLM clients behind one small protocol.
-
-* ``HttpLLM``   - any OpenAI-compatible /chat/completions endpoint with tool calling.
-* ``ScriptedLLM`` - replays canned responses; used in tests.
-The offline rule-based policy lives in ``offline.py``.
-"""
+"""LLM clients: OpenAI-compatible HTTP and a scripted one for tests."""
 
 from __future__ import annotations
 
@@ -15,9 +10,9 @@ from typing import Any, Protocol
 
 import httpx
 
-from overnight.config import LLMSettings
-
-Message = dict[str, Any]
+BACKOFF = (2.0, 4.0, 8.0)
+RETRYABLE = {429, 500, 502, 503, 504}
+MAX_OUTPUT = 2000  # output tokens per call: caps cost of a runaway answer
 
 
 @dataclass
@@ -25,6 +20,10 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+
+    def as_message(self) -> dict[str, Any]:
+        return {"id": self.id, "type": "function",
+                "function": {"name": self.name, "arguments": json.dumps(self.arguments)}}
 
 
 @dataclass
@@ -35,85 +34,63 @@ class LLMResponse:
 
 
 class LLM(Protocol):
-    def complete(self, messages: list[Message], tools: list[dict[str, Any]]) -> LLMResponse: ...
+    def complete(self, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]]) -> LLMResponse: ...
 
 
 class LLMError(RuntimeError):
     pass
 
 
-RETRYABLE = {429, 500, 502, 503, 504}
-
-
 class HttpLLM:
-    def __init__(
-        self,
-        settings: LLMSettings,
-        timeout: float = 120.0,
-        backoff: tuple[float, ...] = (2.0, 4.0, 8.0),
-        sleep: Callable[[float], None] = time.sleep,
-        transport: httpx.BaseTransport | None = None,
-    ) -> None:
-        self.s = settings
-        self.backoff = backoff
-        self.sleep = sleep
-        self.client = httpx.Client(
-            base_url=settings.base_url,
-            headers={"Authorization": f"Bearer {settings.api_key}"},
-            timeout=timeout,
-            transport=transport,
-        )
+    def __init__(self, base_url: str, api_key: str, model: str,
+                 transport: httpx.BaseTransport | None = None,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
+        self.model, self.sleep = model, sleep
+        self.http = httpx.Client(base_url=base_url, timeout=120, transport=transport,
+                                 headers={"Authorization": f"Bearer {api_key}"})
 
     def ping(self) -> None:
-        """Preflight: cheap request that proves network + auth work."""
-        r = self.client.get("/models")
+        r = self.http.get("/models")
         if r.status_code >= 400:
-            raise LLMError(f"preflight failed: HTTP {r.status_code}")
+            raise LLMError(f"HTTP {r.status_code}")
 
-    def complete(self, messages: list[Message], tools: list[dict[str, Any]]) -> LLMResponse:
-        payload: dict[str, Any] = {"model": self.s.model, "messages": messages, "temperature": 0}
+    def complete(self, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]]) -> LLMResponse:
+        body: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": 0,
+                                "max_tokens": MAX_OUTPUT}
         if tools:
-            payload["tools"] = tools
-        for attempt in range(len(self.backoff) + 1):
+            body["tools"] = tools
+        for wait in (*BACKOFF, None):
             try:
-                r = self.client.post("/chat/completions", json=payload)
+                r = self.http.post("/chat/completions", json=body)
             except httpx.TransportError as e:
-                if attempt == len(self.backoff):
-                    raise LLMError(f"network error: {e}") from e
-                self.sleep(self.backoff[attempt])
+                if wait is None:
+                    raise LLMError(f"network: {e}") from e
+                self.sleep(wait)
                 continue
-            if r.status_code in RETRYABLE and attempt < len(self.backoff):
-                self.sleep(self.backoff[attempt])
+            if r.status_code in RETRYABLE and wait is not None:
+                self.sleep(wait)
                 continue
-            if r.status_code >= 400:  # other 4xx (incl. context overflow) are not retried
+            if r.status_code >= 400:  # other 4xx (e.g. context overflow) are not retried
                 raise LLMError(f"HTTP {r.status_code}: {r.text[:300]}")
-            return self._parse(r.json())
-        raise LLMError("unreachable")  # pragma: no cover
-
-    @staticmethod
-    def _parse(data: dict[str, Any]) -> LLMResponse:
-        msg = data["choices"][0]["message"]
-        calls = [
-            ToolCall(
-                id=c["id"],
-                name=c["function"]["name"],
-                arguments=json.loads(c["function"].get("arguments") or "{}"),
-            )
-            for c in msg.get("tool_calls") or []
-        ]
-        tokens = int((data.get("usage") or {}).get("total_tokens", 0))
-        return LLMResponse(content=msg.get("content") or "", tool_calls=calls, tokens=tokens)
+            data = r.json()
+            msg = data["choices"][0]["message"]
+            calls = [ToolCall(c["id"], c["function"]["name"],
+                              json.loads(c["function"].get("arguments") or "{}"))
+                     for c in msg.get("tool_calls") or []]
+            return LLMResponse(msg.get("content") or "", calls,
+                               int((data.get("usage") or {}).get("total_tokens", 0)))
+        raise AssertionError("unreachable")
 
 
 class ScriptedLLM:
-    """Returns pre-baked responses in order. Records what it was asked."""
+    """Replays canned responses and records the messages it was given."""
 
     def __init__(self, responses: list[LLMResponse]) -> None:
-        self.responses = list(responses)
-        self.seen: list[list[Message]] = []
+        self.responses, self.seen = list(responses), list[list[dict[str, Any]]]()
 
-    def complete(self, messages: list[Message], tools: list[dict[str, Any]]) -> LLMResponse:
+    def complete(self, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]]) -> LLMResponse:
         self.seen.append(list(messages))
-        if not self.responses:
-            raise LLMError("script exhausted")
         return self.responses.pop(0)

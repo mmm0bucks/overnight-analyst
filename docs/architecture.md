@@ -23,15 +23,16 @@ overnight run
 
 | Module | Responsibility |
 |---|---|
-| `orchestrator.py` | ordering, failure isolation, artifacts, events log |
-| `agent.py` | bounded tool-calling loop for one stage; one repair attempt for bad JSON |
-| `stages.py` | role prompts, allowed tools, output contracts |
+| `orchestrator.py` | preflight, stage order, failure isolation, artifacts, events log |
+| `stages.py` | output contracts (pydantic), role prompts, allowed tools per stage |
+| `agent.py` | budget + bounded tool-calling loop for one stage, one repair for bad JSON |
 | `tools.py` | read-only tools; every call becomes a numbered source `S1, S2, ...` |
 | `sqlguard.py` | lexical SQL validator (layer 1); DuckDB `read_only=True` is layer 2 |
-| `gates.py` | quality gates: sourcing, number traceability, no new facts in synthesis, critique, budget |
+| `gates.py` | sourcing, number traceability, no new facts in synthesis, critique verdict |
 | `publisher.py` | single writer: atomic writes, backups, managed blocks, secret redaction |
 | `llm.py` | OpenAI-compatible HTTP client with retry policy; scripted client for tests |
-| `offline.py` | deterministic rule-based policy for CI and zero-cost demo (not an LLM) |
+| `offline.py` | deterministic rule-based policy for CI and the free demo (not an LLM) |
+| `demo_data.py` | seeded synthetic warehouse with planted defects |
 
 ## Trust boundaries
 

@@ -7,20 +7,15 @@ from pathlib import Path
 import pytest
 
 from overnight import demo_data
-from overnight.config import Limits, Paths
 
-REPO = Path(__file__).resolve().parents[1]
 TODAY = date(2026, 10, 27)
 
 
 @pytest.fixture
-def paths(tmp_path: Path) -> Paths:
+def ws(tmp_path: Path) -> Path:
+    """A fresh demo workspace (tasks, wiki, hypotheses, warehouse) under tmp_path/demo."""
     ws = tmp_path / "demo"
-    shutil.copytree(REPO / "demo", ws, ignore=shutil.ignore_patterns("*.duckdb*"))
+    shutil.copytree(Path(__file__).parents[1] / "demo", ws,
+                    ignore=shutil.ignore_patterns("*.duckdb*"))
     demo_data.build(ws / "warehouse.duckdb")
-    return Paths.under(tmp_path, ws)
-
-
-@pytest.fixture
-def limits() -> Limits:
-    return Limits()
+    return ws

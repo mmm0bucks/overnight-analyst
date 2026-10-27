@@ -1,59 +1,50 @@
 from __future__ import annotations
 
-from overnight.gates import numbers_in, overall_status, run_gates
-from overnight.schemas import Claim, CollectOut, CritiqueOut, Section, SynthesizeOut
-from overnight.tools import SourceLog
+from pydantic import BaseModel
+
+from overnight.gates import numbers_in, run_gates, status
+from overnight.stages import Claim, CollectOut, CritiqueOut, Section, SynthesizeOut
+from overnight.tools import Source
+
+SOURCES = {"S1": Source("S1", "run_sql", {}, {"rows": [[101, 1000]]}),
+           "S2": Source("S2", "run_sql", {}, {"rows": [[5]]})}
 
 
-def _log() -> SourceLog:
-    log = SourceLog()
-    log.add("run_sql", {}, {"rows": [[101, 1000]]}, "collect")
-    return log
-
-
-def _arts(fact: Claim, bullet: Claim, verdict: str = "accept") -> dict[str, object]:
+def _arts(fact: Claim, bullet: Claim, verdict: str = "accept") -> dict[str, BaseModel]:
     return {"collect": CollectOut(facts=[fact]),
             "synthesize": SynthesizeOut(headline="h", sections=[Section(title="t",
                                                                         bullets=[bullet])]),
             "critique": CritiqueOut(verdict=verdict)}  # type: ignore[arg-type]
 
 
-def _failed(arts: dict[str, object], log: SourceLog) -> set[str]:
-    ok = dict.fromkeys(arts, "ok")
-    return {g.name for g in run_gates(arts, ok, log, None) if not g.passed}
+def _failed(fact: Claim, bullet: Claim, verdict: str = "accept") -> set[str]:
+    return {g.name for g in run_gates(_arts(fact, bullet, verdict), {}, SOURCES)
+            if not g.passed}
 
 
 def test_all_green() -> None:
     c = Claim(text="1000 contacts", sources=["S1"], value=1000)
-    arts = _arts(c, c)
-    gates = run_gates(arts, dict.fromkeys(arts, "ok"), _log(), None)
-    assert overall_status(gates, arts) == "ok"
+    assert status(run_gates(_arts(c, c), {}, SOURCES), _arts(c, c)) == "ok"
 
 
 def test_invented_number_is_caught() -> None:
     c = Claim(text="1200 contacts", sources=["S1"], value=1200)
-    assert "numbers_traceable" in _failed(_arts(c, c), _log())
+    assert _failed(c, c) == {"numbers_traceable"}
 
 
 def test_unsourced_and_unknown_sources() -> None:
-    f = Claim(text="x", sources=[])
-    b = Claim(text="y", sources=["S9"])
-    assert {"every_claim_sourced", "sources_exist"} <= _failed(_arts(f, b), _log())
+    assert {"every_claim_sourced", "sources_exist"} <= _failed(
+        Claim(text="x"), Claim(text="y", sources=["S9"]))
 
 
 def test_synthesis_cannot_introduce_sources() -> None:
-    log = _log()
-    log.add("run_sql", {}, {"rows": [[5]]}, "synthesize")
-    f = Claim(text="a", sources=["S1"])
-    b = Claim(text="b", sources=["S2"])
-    assert "synthesis_adds_no_sources" in _failed(_arts(f, b), log)
+    assert _failed(Claim(text="a", sources=["S1"]), Claim(text="b", sources=["S2"])) == {
+        "synthesis_adds_no_sources"}
 
 
-def test_rejected_critique_makes_run_partial() -> None:
+def test_rejected_critique_fails_gate() -> None:
     c = Claim(text="a", sources=["S1"])
-    arts = _arts(c, c, verdict="reject")
-    gates = run_gates(arts, dict.fromkeys(arts, "ok"), _log(), None)
-    assert overall_status(gates, arts) == "partial"
+    assert _failed(c, c, "reject") == {"critique_not_rejected"}
 
 
 def test_numbers_in_ignores_booleans() -> None:

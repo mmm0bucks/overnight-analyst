@@ -1,71 +1,59 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import TODAY
 
-from overnight.agent import StageFailed, run_stage
-from overnight.budget import Budget, BudgetExceeded
-from overnight.config import Limits
+from overnight.agent import Budget, BudgetExceeded, Limits, StageFailed, run_stage
 from overnight.llm import LLMResponse, ScriptedLLM, ToolCall
-from overnight.schemas import CritiqueOut
-from overnight.tools import SourceLog, Tool
+from overnight.stages import CritiqueOut, Stage
+from overnight.tools import Toolbox
 
-ECHO = Tool("echo", "echo", {"type": "object", "properties": {}}, lambda: {"n": 7})
-
-
-def _run(llm: ScriptedLLM, tools: list[Tool] | None = None,
-         limits: Limits | None = None) -> tuple[CritiqueOut, SourceLog, list[dict[str, Any]]]:
-    events: list[dict[str, Any]] = []
-    src = SourceLog()
-    out = run_stage(stage="t", llm=llm, system="s", user="u", tools=tools or [ECHO],
-                    schema=CritiqueOut, budget=Budget(limits or Limits()), sources=src,
-                    emit=events.append)
-    return out, src, events
+STAGE = Stage("t", "role", ["list_wiki_pages", "run_sql"], CritiqueOut, [])
+DEFAULT = Limits()
+ACCEPT = LLMResponse(content='{"verdict": "accept"}')
 
 
-def test_tool_call_registers_source_and_returns_it_to_model() -> None:
-    llm = ScriptedLLM([LLMResponse(tool_calls=[ToolCall("a", "echo", {})]),
-                       LLMResponse(content='{"verdict": "accept"}')])
-    out, src, _ = _run(llm)
-    assert out.verdict == "accept"
-    assert list(src.sources) == ["S1"]
+def _run(ws: Path, *responses: LLMResponse, limits: Limits = DEFAULT) -> tuple[Any, ...]:
+    llm, box, events = ScriptedLLM(list(responses)), Toolbox(ws, TODAY), list[dict[str, Any]]()
+    out = run_stage(STAGE, llm, "u", box, Budget(limits), events.append)
+    return out, llm, box, events
+
+
+def _call(name: str, **args: Any) -> LLMResponse:
+    return LLMResponse(tool_calls=[ToolCall("x", name, args)])
+
+
+def test_tool_result_is_a_numbered_source(ws: Path) -> None:
+    out, llm, box, _ = _run(ws, _call("list_wiki_pages"), ACCEPT)
+    assert out.verdict == "accept" and list(box.sources) == ["S1"]
     assert '"source": "S1"' in llm.seen[1][-1]["content"]
 
 
-def test_unknown_tool_is_denied_not_executed() -> None:
-    llm = ScriptedLLM([LLMResponse(tool_calls=[ToolCall("a", "rm_rf", {})]),
-                       LLMResponse(content='{"verdict": "accept"}')])
-    _, src, events = _run(llm)
-    assert not src.sources
-    assert any(e["event"] == "tool_denied" for e in events)
+def test_tool_not_allowed_in_stage_is_refused(ws: Path) -> None:
+    _, llm, box, _ = _run(ws, _call("list_tasks"), ACCEPT)
+    assert not box.sources and "not allowed" in llm.seen[1][-1]["content"]
 
 
-def test_tool_exception_goes_back_to_model() -> None:
-    boom = Tool("boom", "", {"type": "object"}, lambda: 1 / 0)
-    llm = ScriptedLLM([LLMResponse(tool_calls=[ToolCall("a", "boom", {})]),
-                       LLMResponse(content='{"verdict": "revise"}')])
-    out, _, _ = _run(llm, [boom])
-    assert out.verdict == "revise"
-    assert "ZeroDivisionError" in llm.seen[1][-1]["content"]
+def test_rejected_sql_goes_back_to_model(ws: Path) -> None:
+    _, llm, box, _ = _run(ws, _call("run_sql", query="DROP TABLE contacts"), ACCEPT)
+    assert not box.sources and "SQLRejected" in llm.seen[1][-1]["content"]
 
 
-def test_invalid_output_gets_one_repair() -> None:
-    llm = ScriptedLLM([LLMResponse(content='{"verdict": "maybe"}'),
-                       LLMResponse(content='```json\n{"verdict": "accept"}\n```')])
-    out, _, events = _run(llm)
-    assert out.verdict == "accept"
-    assert [e["event"] for e in events].count("repair") == 1
+def test_one_repair_for_bad_json(ws: Path) -> None:
+    out, *_, events = _run(ws, LLMResponse(content='{"verdict": "maybe"}'),
+                           LLMResponse(content='```json\n{"verdict": "accept"}\n```'))
+    assert out.verdict == "accept" and [e["event"] for e in events].count("repair") == 1
 
 
-def test_second_invalid_output_fails_stage() -> None:
-    llm = ScriptedLLM([LLMResponse(content="nope"), LLMResponse(content="still nope")])
+def test_second_bad_json_fails_stage(ws: Path) -> None:
     with pytest.raises(StageFailed):
-        _run(llm)
+        _run(ws, LLMResponse(content="nope"), LLMResponse(content="still nope"))
 
 
-def test_budget_is_checked_before_each_call() -> None:
-    llm = ScriptedLLM([LLMResponse(tool_calls=[ToolCall("a", "echo", {})], tokens=500),
-                       LLMResponse(content='{"verdict": "accept"}')])
+def test_budget_checked_before_each_call(ws: Path) -> None:
+    first = LLMResponse(tool_calls=[ToolCall("x", "list_wiki_pages", {})], tokens=500)
     with pytest.raises(BudgetExceeded):
-        _run(llm, limits=Limits(max_tokens=100))
+        _run(ws, first, ACCEPT, limits=Limits(max_tokens=100))

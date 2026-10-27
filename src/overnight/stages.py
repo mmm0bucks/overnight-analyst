@@ -1,29 +1,56 @@
-"""Stage definitions: role prompt, allowed tools, output contract, input builder.
-
-Roles are deliberately narrow: collect does not analyze, synthesize adds no facts,
-critique only checks. Each stage runs in a fresh context.
-"""
+"""Stage contracts and roles. Collect does not analyze, synthesize adds no facts,
+critique only checks. Each stage runs in a fresh context."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from overnight.schemas import AnalyzeOut, CollectOut, CritiqueOut, SynthesizeOut
 
-COMMON = """
-Rules:
-- Every claim must cite the source ids (S1, S2, ...) returned by the tools it relies on.
-- If a claim contains a number, put that exact number into "value";
-  it must appear in a cited source.
-- Never invent numbers. Do not do arithmetic in your head: compute it with SQL instead.
-- Separate facts from guesses. If you are not sure, say so.
-- Final answer: ONE JSON object matching the contract, nothing else.
-"""
+class Claim(BaseModel):
+    text: str
+    sources: list[str] = []  # tool-call ids like "S3"
+    value: float | None = None  # the key number, if any; must appear in a cited source
+
+
+class CollectOut(BaseModel):
+    facts: list[Claim]
+
+
+class HypothesisResult(BaseModel):
+    id: str
+    statement: str
+    status: Literal["confirmed", "rejected", "inconclusive"]
+    evidence: list[Claim]
+
+
+class AnalyzeOut(BaseModel):
+    hypotheses: list[HypothesisResult]
+
+
+class Section(BaseModel):
+    title: str
+    bullets: list[Claim]
+
+
+class SynthesizeOut(BaseModel):
+    headline: str
+    sections: list[Section]
+
+
+class CritiqueOut(BaseModel):
+    verdict: Literal["accept", "revise", "reject"]
+    issues: list[str] = []
+
+
+RULES = """Rules:
+- Every claim cites the source ids (S1, S2, ...) returned by the tools it relies on.
+- A number in a claim goes into "value" and must appear in a cited source.
+- Never invent numbers and never do arithmetic in your head: compute with SQL.
+- Final answer: ONE JSON object matching the contract, nothing else."""
 
 
 @dataclass(frozen=True)
@@ -32,55 +59,27 @@ class Stage:
     role: str
     tools: list[str]
     schema: type[BaseModel]
-    contract: str
-    needs: list[str]  # artifacts of previous stages this stage reads
+    needs: list[str]
 
     def system(self) -> str:
-        return f"STAGE: {self.name}\n{self.role}\n{COMMON}\nContract:\n{self.contract}"
+        contract = json.dumps(self.schema.model_json_schema())
+        return f"STAGE: {self.name}\n{self.role}\n{RULES}\nContract: {contract}"
 
     def user(self, today: str, inputs: dict[str, Any]) -> str:
-        return (f"Today is {today}.\n<input>\n"
-                f"{json.dumps(inputs, ensure_ascii=False, indent=1, default=str)}\n</input>")
+        return f"Today is {today}.\n<input>\n{json.dumps(inputs, ensure_ascii=False)}\n</input>"
 
 
-def _contract(model: type[BaseModel]) -> str:
-    return json.dumps(model.model_json_schema(), ensure_ascii=False)
-
-
-STAGES: list[Stage] = [
-    Stage(
-        name="collect",
-        role="You are the collector. Gather the morning context: tasks (especially overdue), "
-             "relevant wiki pages, and basic warehouse volumes. Do NOT analyze or judge.",
-        tools=["list_tasks", "get_task", "list_wiki_pages", "read_wiki", "search_wiki",
-               "run_sql"],
-        schema=CollectOut, contract=_contract(CollectOut), needs=[],
-    ),
-    Stage(
-        name="analyze",
-        role="You are the analyst. For each hypothesis in the input, check it against the "
-             "warehouse with read-only SQL and decide: confirmed, rejected or inconclusive. "
-             "Use the wiki for definitions. One hypothesis = at least one query.",
-        tools=["read_wiki", "search_wiki", "run_sql"],
-        schema=AnalyzeOut, contract=_contract(AnalyzeOut), needs=["collect", "hypotheses"],
-    ),
-    Stage(
-        name="synthesize",
-        role="You are the editor. Turn the collected facts and analysis into a short morning "
-             "report. You may only reuse claims from the input: rephrase, group, prioritize. "
-             "Do NOT add new facts, numbers or sources.",
-        tools=[], schema=SynthesizeOut, contract=_contract(SynthesizeOut),
-        needs=["collect", "analyze"],
-    ),
-    Stage(
-        name="critique",
-        role="You are the reviewer. Check the report against the facts it was built from: "
-             "unsupported claims, wrong numbers, hypotheses stated as facts, missing caveats. "
-             "Verdict: accept, revise (usable with caveats) or reject.",
-        tools=[], schema=CritiqueOut, contract=_contract(CritiqueOut),
-        needs=["collect", "analyze", "synthesize"],
-    ),
+STAGES = [
+    Stage("collect", "You are the collector. Gather the morning context: tasks (especially "
+          "overdue), wiki pages, warehouse volumes. Do NOT analyze or judge.",
+          ["list_tasks", "list_wiki_pages", "read_wiki", "run_sql"], CollectOut, []),
+    Stage("analyze", "You are the analyst. Check each hypothesis in the input with read-only "
+          "SQL and mark it confirmed, rejected or inconclusive. Use the wiki for definitions.",
+          ["list_wiki_pages", "read_wiki", "run_sql"], AnalyzeOut, ["collect", "hypotheses"]),
+    Stage("synthesize", "You are the editor. Turn the input into a short morning report. "
+          "Reuse claims only: rephrase, group, prioritize. Add NO new facts or sources.",
+          [], SynthesizeOut, ["collect", "analyze"]),
+    Stage("critique", "You are the reviewer. Check the report against its inputs: unsupported "
+          "claims, wrong numbers, guesses stated as facts. Verdict: accept, revise or reject.",
+          [], CritiqueOut, ["collect", "analyze", "synthesize"]),
 ]
-
-BY_NAME: dict[str, Stage] = {s.name: s for s in STAGES}
-InputBuilder = Callable[[str], dict[str, Any]]
