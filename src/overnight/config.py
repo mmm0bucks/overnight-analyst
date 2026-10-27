@@ -34,7 +34,9 @@ class Paths:
 
     @classmethod
     def under(cls, root: Path, workspace: Path) -> Paths:
-        return cls(workspace=workspace, runs=root / "runs", state=root / "state", vault=root / "vault")
+        return cls(
+            workspace=workspace, runs=root / "runs", state=root / "state", vault=root / "vault"
+        )
 
 
 def limits_from_env() -> Limits:

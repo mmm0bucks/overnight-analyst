@@ -18,7 +18,8 @@ from overnight.schemas import AnalyzeOut, CollectOut, CritiqueOut, SynthesizeOut
 COMMON = """
 Rules:
 - Every claim must cite the source ids (S1, S2, ...) returned by the tools it relies on.
-- If a claim contains a number, put that exact number into "value"; it must appear in a cited source.
+- If a claim contains a number, put that exact number into "value";
+  it must appear in a cited source.
 - Never invent numbers. Do not do arithmetic in your head: compute it with SQL instead.
 - Separate facts from guesses. If you are not sure, say so.
 - Final answer: ONE JSON object matching the contract, nothing else.
