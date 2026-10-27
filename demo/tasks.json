@@ -1,0 +1,7 @@
+[
+ {"id": "T-1", "title": "Uplift report for 'Autumn data bundle'", "status": "in_progress", "due": "2026-10-24", "labels": ["report"], "body": "Treatment vs control response rate and incremental revenue for campaign 101."},
+ {"id": "T-2", "title": "Validate response attribution for 'Roaming pass promo'", "status": "open", "due": "2026-10-30", "labels": ["data-quality"], "body": "Business sees more responses than expected for campaign 102. Check for duplicates."},
+ {"id": "T-3", "title": "Control group audit for 'Family plan upsell'", "status": "open", "due": "2026-10-20", "labels": ["data-quality"], "body": "Make sure no customer is in both treatment and control for campaign 103."},
+ {"id": "T-4", "title": "Win-back October: first results", "status": "open", "due": "2026-11-05", "labels": ["report"], "body": "Early readout for campaign 104."},
+ {"id": "T-5", "title": "Refresh campaign dictionary", "status": "done", "due": "2026-10-10", "labels": ["housekeeping"], "body": ""}
+]

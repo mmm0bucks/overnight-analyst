@@ -1,0 +1,7 @@
+[
+ {"id": "H1", "statement": "Some responses are recorded more than once", "suggested_sql": "SELECT count(*) FROM (SELECT customer_id, campaign_id, response_date, revenue FROM responses GROUP BY ALL HAVING count(*) > 1)"},
+ {"id": "H2", "statement": "Some customers are in both treatment and control of the same campaign", "suggested_sql": "SELECT count(*) FROM (SELECT customer_id, campaign_id FROM contacts GROUP BY 1, 2 HAVING count(DISTINCT grp) > 1)"},
+ {"id": "H3", "statement": "Some responses are dated before the customer was contacted", "suggested_sql": "SELECT count(*) FROM responses r JOIN contacts c USING (customer_id, campaign_id) WHERE r.response_date < c.contact_date"},
+ {"id": "H4", "statement": "Some campaigns end before they start", "suggested_sql": "SELECT count(*) FROM campaigns WHERE end_date < start_date"},
+ {"id": "H5", "statement": "Treatment beats control on response rate in every campaign"}
+]
