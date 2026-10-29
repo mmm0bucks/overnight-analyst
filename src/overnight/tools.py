@@ -40,22 +40,34 @@ class Toolbox:
         self.ws, self.today = workspace, today
         self.sql_per_stage, self.max_rows, self.sql_left = sql_per_stage, max_rows, sql_per_stage
         self.sources: dict[str, Source] = {}
+        self.seen: dict[str, str] = {}  # call -> source id, within the current stage
+
+    def new_stage(self) -> None:
+        self.sql_left, self.seen = self.sql_per_stage, {}
 
     def schemas(self, names: list[str]) -> list[dict[str, Any]]:
         return [{"type": "function", "function": {
             "name": n, "description": SCHEMAS[n][0], "parameters": SCHEMAS[n][1]}}
             for n in names]
 
+    def available(self, names: list[str]) -> list[str]:
+        return [n for n in names if n != "run_sql" or self.sql_left > 0]
+
     def call(self, allowed: list[str], name: str, args: dict[str, Any]) -> str:
         """Run a tool for the model. Errors go back to the model as text, never up."""
         if name not in allowed:
             return json.dumps({"error": f"tool '{name}' is not allowed here"})
+        key = json.dumps([name, args], sort_keys=True)
+        if key in self.seen:  # models re-read the same page in a loop instead of answering
+            return json.dumps({"error": f"already returned above as {self.seen[key]}; "
+                                        "use it instead of calling again"})
         try:
             result = getattr(self, name)(**args)
         except Exception as e:
             return json.dumps({"error": f"{type(e).__name__}: {e}"})
         sid = f"S{len(self.sources) + 1}"
         self.sources[sid] = Source(sid, name, args, result)
+        self.seen[key] = sid
         return json.dumps({"source": sid, "result": result}, ensure_ascii=False, default=str)
 
     def list_tasks(self) -> list[dict[str, Any]]:

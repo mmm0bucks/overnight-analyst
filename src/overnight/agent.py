@@ -61,14 +61,22 @@ def extract_json(text: str) -> Any:
 
 
 def run_stage(stage: Stage, llm: LLM, user: str, box: Toolbox, budget: Budget,
-              emit: Callable[[dict[str, Any]], None], max_turns: int = 12) -> BaseModel:
+              emit: Callable[[dict[str, Any]], None], max_turns: int = 8) -> BaseModel:
     messages: list[dict[str, Any]] = [{"role": "system", "content": stage.system()},
                                       {"role": "user", "content": user}]
-    tools = box.schemas(stage.tools)
+    offered = stage.tools
     repaired = False
-    for _ in range(max_turns):
+    for turn in range(max_turns):
         budget.check()
-        resp = llm.complete(messages, tools)
+        # Take tools away once their quota is gone, and on the last turn: models keep
+        # retrying a refused tool instead of answering (seen in the first real run).
+        names = [] if turn == max_turns - 1 else box.available(stage.tools)
+        if names != offered:
+            offered = names
+            messages.append({"role": "user", "content": "Tools now available: "
+                             f"{', '.join(names) or 'none'}. If you cannot call what you "
+                             "need, answer now with the JSON from what you already have."})
+        resp = llm.complete(messages, box.schemas(offered))
         budget.tokens += resp.tokens
         emit({"event": "llm", "stage": stage.name, "tokens": resp.tokens,
               "tools": [c.name for c in resp.tool_calls]})
@@ -78,7 +86,7 @@ def run_stage(stage: Stage, llm: LLM, user: str, box: Toolbox, budget: Budget,
             for c in resp.tool_calls:
                 budget.check()
                 budget.tool_calls += 1
-                result = box.call(stage.tools, c.name, c.arguments)
+                result = box.call(offered, c.name, c.arguments)
                 emit({"event": "tool", "stage": stage.name, "tool": c.name,
                       "result": result[:200]})
                 messages.append({"role": "tool", "tool_call_id": c.id, "content": result})

@@ -38,9 +38,10 @@ def main(argv: list[str] | None = None) -> int:
             p.error("set OVERNIGHT_LLM_BASE_URL, _API_KEY and _MODEL (see .env.example)")
         http = HttpLLM(env["BASE_URL"] or "", env["API_KEY"] or "", env["MODEL"] or "")
         llm, ping = http, http.ping
-    # Lifetime cap for a prepaid key: tokens spent by all http runs live in state/spend.json.
+    # Lifetime cap for a prepaid key, shared by all --root dirs: ./state/spend.json in the
+    # directory you run from (where .env lives).
     # ponytail: checked between calls, so one call (<= ~50k tokens) can overshoot the cap.
-    spend_file = a.root / "state" / "spend.json"
+    spend_file = Path("state") / "spend.json"
     spent = json.loads(spend_file.read_text())["tokens"] if spend_file.exists() else 0
     total = int(os.getenv("OVERNIGHT_TOTAL_TOKENS", 0))  # 0 = no lifetime cap
     per_run = int(os.getenv("OVERNIGHT_MAX_TOKENS", Limits.max_tokens))

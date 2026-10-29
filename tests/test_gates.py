@@ -48,4 +48,9 @@ def test_rejected_critique_fails_gate() -> None:
 
 
 def test_numbers_in_ignores_booleans() -> None:
-    assert numbers_in({"a": True, "b": [1, "x 2.5"]}) == {1.0, 2.5}
+    assert numbers_in({"a": True, "b": [1, "x 2.5"]}) == {1.0, 2.5, 2.0}  # 2.0 = len
+
+
+def test_list_length_counts_as_traceable() -> None:
+    c = Claim(text="1 row", sources=["S2"], value=1)  # S2 rows == [[5]]
+    assert "numbers_traceable" not in _failed(c, c)
