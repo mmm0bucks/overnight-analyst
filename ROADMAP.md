@@ -3,7 +3,7 @@
 Each item is planned as a separate pull request.
 
 - [x] Walking skeleton: 4 stages, read-only tools, gates, publisher, offline policy, CI
-- [ ] Real LLM run on the demo; fill the evaluation table with results, tokens, cost, latency
+- [x] Real LLM run on the demo; fill the evaluation table with results, tokens, latency
 - [ ] Eval harness: N runs per model, per-hypothesis accuracy, regression check in CI (recorded)
 - [ ] GitHub Issues adapter for the tracker (read-only)
 - [ ] Per-stage wall-clock timeout (run stages in a subprocess, kill on timeout)

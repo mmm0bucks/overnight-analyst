@@ -70,7 +70,7 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
             continue
         inputs = {n: open_hyps if n == "hypotheses" else arts[n].model_dump()
                   for n in stage.needs if n == "hypotheses" or n in arts}
-        box.sql_left = limits.max_sql_per_stage
+        box.new_stage()
         try:
             arts[stage.name] = run_stage(stage, llm, stage.user(today.isoformat(), inputs),
                                          box, budget, emit)

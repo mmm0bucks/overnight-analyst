@@ -31,6 +31,10 @@ What was checked, found and changed by hand. Each entry: what, where, why.
 | 2026-10-27 | uv picked a pre-release Python 3.15 interpreter | `.python-version` | pinned 3.12 |
 | 2026-10-27 | virtualenv created inside a synced/mounted folder was very slow | dev setup | venv moved outside the repo (`UV_PROJECT_ENVIRONMENT`) |
 | 2026-10-27 | first version over-structured: 18 files, ~1400 lines, single-use classes (config, budget, schemas, tracker protocol) | `src/` | asked for a simplification pass: merged into 12 files, ~900 lines, same 48 tests green |
+| 2026-10-28 | first real run failed: model kept retrying `run_sql` after its quota was used up, collect never answered | `agent.py` | root cause + fix in [postmortem](docs/postmortems/2026-10-28-collect-retry-loop.md) |
+| 2026-10-29 | run 2 correct but wasteful: stages re-read the same pages until the turn limit | `tools.py`, `agent.py` | dedupe identical calls per stage, `max_turns` 12 → 8 |
+| 2026-10-29 | run 3 `partial`: gate rejected true counts that were list lengths | `gates.py` | list length counts as a traceable number |
+| 2026-10-29 | lifetime token counter lived under `--root`: a fresh `--root` bypassed the key cap | `cli.py` | counter moved to `./state/spend.json`, test updated |
 | | _next entries: my own review of each module_ | | |
 
 ## Rules I follow when working with AI here

@@ -40,7 +40,8 @@ def numbers_in(obj: Any) -> set[float]:
     if isinstance(obj, dict):
         obj = list(obj.values())
     if isinstance(obj, list):
-        return set().union(*map(numbers_in, obj))
+        # a list's length is a fact of the source too ("3 wiki pages", "15 duplicate rows")
+        return {float(len(obj))}.union(*map(numbers_in, obj))
     return set()
 
 

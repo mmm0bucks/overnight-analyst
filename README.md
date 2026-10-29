@@ -72,15 +72,27 @@ That gives free ground truth:
 
 | Hypothesis | Truth | Offline policy | LLM (`--llm http`) |
 |---|---|---|---|
-| H1 duplicate responses | yes | confirmed | _todo_ |
-| H2 control leakage | yes | confirmed | _todo_ |
-| H3 response before contact | yes | confirmed | _todo_ |
-| H4 campaign ends before start | no | rejected | _todo_ |
-| H5 treatment beats control everywhere | open question, no SQL given | skipped | _todo_ |
+| H1 duplicate responses | yes, 15 rows | confirmed | confirmed, 15 |
+| H2 control leakage | yes, 25 customers | confirmed | confirmed, 25 |
+| H3 response before contact | yes, 12 rows | confirmed | confirmed, 12 |
+| H4 campaign ends before start | no | rejected | rejected, 0 |
+| H5 treatment beats control everywhere | yes (4/4 campaigns) | skipped (no SQL given) | confirmed, wrote its own SQL |
+
+LLM column: `qwen3.8-27b-noreason`, two clean runs — 5/5 correct both times, every count
+matches the planted defects.
+
+| Run | Tokens | Model calls | Time |
+|---|---|---|---|
+| 2026-10-28, before the loop fixes | 98.7k | 26 | 167 s |
+| 2026-10-29, after | 55.3k (−44%) | 18 | 577 s |
+
+Time is dominated by the provider generating the final JSON of each stage (up to ~110 s per
+call), not by tools. Two runs are an anecdote, not an evaluation — repeated runs are the next
+milestone, see [ROADMAP.md](ROADMAP.md) and the
+[postmortem](docs/postmortems/2026-10-28-collect-retry-loop.md) for what went wrong first.
 
 The offline policy is a deterministic stand-in (not an LLM) so CI exercises the whole
-pipeline. The LLM column, with cost and latency per run, is the next milestone — see
-[ROADMAP.md](ROADMAP.md).
+pipeline.
 
 ## Development
 

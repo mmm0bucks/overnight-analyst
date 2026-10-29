@@ -10,5 +10,7 @@ dist/
 runs/
 state/
 vault/
+eval/
 *.duckdb
 *.duckdb.wal
+.vscode/

@@ -57,3 +57,27 @@ def test_budget_checked_before_each_call(ws: Path) -> None:
     first = LLMResponse(tool_calls=[ToolCall("x", "list_wiki_pages", {})], tokens=500)
     with pytest.raises(BudgetExceeded):
         _run(ws, first, ACCEPT, limits=Limits(max_tokens=100))
+
+
+class SQLAddict:
+    """Mimics the first real run: keeps calling run_sql while it is offered."""
+
+    def complete(self, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]]) -> LLMResponse:
+        if any(t["function"]["name"] == "run_sql" for t in tools):
+            q = {"query": f"SELECT {len(messages)}", "purpose": "p"}
+            return LLMResponse(tool_calls=[ToolCall("x", "run_sql", q)])
+        return ACCEPT
+
+
+def test_stage_finishes_when_sql_quota_is_used_up(ws: Path) -> None:
+    box, events = Toolbox(ws, TODAY, sql_per_stage=2), list[dict[str, Any]]()
+    out = run_stage(STAGE, SQLAddict(), "u", box, Budget(DEFAULT), events.append)
+    assert out.verdict == "accept"  # type: ignore[attr-defined]
+    assert sum(e["event"] == "tool" for e in events) == 2
+
+
+def test_repeated_call_is_not_run_again(ws: Path) -> None:
+    _, llm, box, _ = _run(ws, _call("list_wiki_pages"), _call("list_wiki_pages"), ACCEPT)
+    assert list(box.sources) == ["S1"] and "already returned above as S1" in \
+        llm.seen[2][-1]["content"]
