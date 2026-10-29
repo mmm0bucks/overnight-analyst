@@ -1,5 +1,7 @@
 # How this project was built with AI
 
+**English** · [Русский](AI_WORKFLOW.ru.md)
+
 I build with an AI pair. This file says, honestly, what the AI did and what I did,
 so the repository can be judged for what it is.
 
@@ -41,4 +43,4 @@ What was checked, found and changed by hand. Each entry: what, where, why.
 
 * No change lands without passing `ruff`, `mypy --strict` and `pytest`.
 * Any guardrail must have a test that tries to break it.
-* Commits generated with AI carry a `Co-Authored-By` trailer.
+* I write the commit messages; commits made together with AI are signed `Max + Agent`.

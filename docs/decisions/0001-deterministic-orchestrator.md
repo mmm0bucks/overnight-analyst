@@ -1,5 +1,7 @@
 # 0001 — A deterministic orchestrator around LLM stages
 
+**English** · [Русский](0001-deterministic-orchestrator.ru.md)
+
 **Status:** accepted
 
 **Context.** An unattended overnight job fails in boring ways: network down at start,

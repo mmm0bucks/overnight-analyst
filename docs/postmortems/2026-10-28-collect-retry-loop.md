@@ -1,5 +1,7 @@
 # 2026-10-28 — first real run: collect stuck retrying a refused tool
 
+**English** · [Русский](2026-10-28-collect-retry-loop.ru.md)
+
 **Impact.** The first run against a real model (`qwen3.8-27b-noreason`) failed: the collect
 stage hit its 12-turn limit with no answer, so the night produced only a `failed` note.
 Cost: 36.7k tokens, 61 s, 25 tool calls (15 of them refused).

@@ -1,5 +1,7 @@
 # Roadmap
 
+**English** · [Русский](ROADMAP.ru.md)
+
 Each item is planned as a separate pull request.
 
 - [x] Walking skeleton: 4 stages, read-only tools, gates, publisher, offline policy, CI

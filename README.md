@@ -2,6 +2,128 @@
 
 [![ci](https://github.com/mmm0bucks/overnight-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/mmm0bucks/overnight-analyst/actions/workflows/ci.yml)
 
+[Русский](#русский) · [English](#english)
+
+## Русский
+
+LLM-агент, который **за ночь** делает утреннюю домашку аналитика данных: читает трекер
+задач и командную вики, проверяет гипотезы о качестве данных SQL-запросами **только на
+чтение** и кладёт в Obsidian короткий отчёт, где у каждого утверждения есть источник.
+
+Самое интересное здесь не модель, а обвязка вокруг неё: что модели делать **нельзя** и что
+после неё проверяет обычный код.
+
+> Проект сделан с нуля на синтетических данных. Он повторяет идеи внутреннего инструмента,
+> который я построил на работе, но кода, промптов, данных и названий оттуда здесь нет.
+
+### Быстрый старт (ключ API не нужен)
+
+```bash
+uv sync
+uv run overnight init-demo                 # синтетическая база с заложенными ошибками
+uv run overnight run --today 2026-10-27    # офлайн-режим: весь пайплайн бесплатно
+```
+
+Результат: `vault/Overnight/Reports/<дата> <run_id>.md`, `vault/Overnight/Hypotheses.md`
+и все промежуточные файлы в `runs/<run_id>/`.
+
+С настоящей моделью (любой OpenAI-совместимый API с вызовом инструментов):
+
+```bash
+cp .env.example .env   # впишите ключ; адрес и модель уже заполнены
+uv run --env-file .env overnight run --llm http --vault "/путь/к/вашему/vault"
+```
+
+### Как это работает
+
+```
+preflight → collect → analyze → synthesize → critique → finalize (проверки) → publisher
+             LLM       LLM        LLM          LLM         код                    код
+```
+
+* **Узкие этапы, у каждого свой чистый контекст.** Сбор не анализирует, синтез не
+  добавляет фактов, критика только проверяет. Каждый этап возвращает JSON по контракту.
+* **Инструменты только на чтение.** Трекер, вики и SQL. Инструментов записи нет вообще.
+* **Источники везде.** Каждый вызов инструмента получает номер `S1, S2, ...`, и каждое
+  утверждение на них ссылается.
+* **Проверки в коде, а не в промпте.** После этапов с моделью обычный код решает, чем
+  закончился прогон: `ok`, `partial` или `failed`.
+* **Один писатель.** В vault и в память агента пишет только publisher: атомарно, с бэкапом,
+  с вычисткой секретов и только внутри своих блоков, не трогая ваши заметки.
+
+Подробнее: [docs/architecture.ru.md](docs/architecture.ru.md) · решения:
+[docs/decisions](docs/decisions)
+
+### Защита
+
+| Риск | Что защищает | Тест |
+|---|---|---|
+| Модель меняет или удаляет данные | инструментов записи нет; проверка SQL + подключение к базе `read_only` | `test_sqlguard.py` |
+| Модель читает произвольные файлы через SQL | `read_*`, `glob`, `COPY`, `ATTACH`… запрещены | `test_sqlguard.py` |
+| Выдуманные или неверно посчитанные числа | каждое `value` должно встречаться в указанном источнике | `test_gates.py` |
+| Синтез добавляет неподтверждённые факты | синтез может ссылаться только на источники прошлых этапов | `test_gates.py` |
+| Бесконечный цикл или перерасход | лимит токенов, вызовов и времени перед каждым вызовом; лимит ходов | `test_agent.py` |
+| Нестабильный API | повтор при 429/5xx с паузами 2/4/8 с; остальные 4xx не повторяются | `test_llm_http.py` |
+| Плохой прогон портит память | список гипотез обновляется, только если прошли все проверки | `test_pipeline.py` |
+| Никто не заметил упавшую ночь | при сбое preflight всё равно публикуется заметка `failed` | `test_pipeline.py` |
+| Два прогона за день затирают друг друга | уникальный `run_id`, а не дата | `test_pipeline.py` |
+| Перезаписаны заметки человека | маркеры управляемого блока, атомарная запись + бэкап | `test_publisher.py` |
+
+### Оценка
+
+Демо-база генерируется с фиксированным seed и **заложенными ошибками** (дубли откликов,
+клиенты сразу в тесте и контроле, отклики раньше контакта), плюс одна ложная гипотеза.
+Это бесплатная «правда», с которой можно сверять агента:
+
+| Гипотеза | Правда | Офлайн-режим | LLM (`--llm http`) |
+|---|---|---|---|
+| H1 дубли откликов | да, 15 строк | подтверждена | подтверждена, 15 |
+| H2 пересечение теста и контроля | да, 25 клиентов | подтверждена | подтверждена, 25 |
+| H3 отклик раньше контакта | да, 12 строк | подтверждена | подтверждена, 12 |
+| H4 кампания кончается раньше старта | нет | отклонена | отклонена, 0 |
+| H5 тест лучше контроля во всех кампаниях | да (4 из 4) | пропущена (нет готового SQL) | подтверждена, SQL написала сама |
+
+Колонка LLM: `qwen3.8-27b-noreason`, два чистых прогона — оба раза 5 из 5, все числа
+совпадают с заложенными ошибками.
+
+| Прогон | Токены | Вызовы модели | Время |
+|---|---|---|---|
+| 2026-10-28, до исправления циклов | 98,7 тыс. | 26 | 167 с |
+| 2026-10-29, после | 55,3 тыс. (−44%) | 18 | 577 с |
+
+Время уходит в основном на то, что провайдер генерирует итоговый JSON этапа (до ~110 с на
+вызов), а не на инструменты. Два прогона — это случай, а не оценка; повторные прогоны —
+следующий шаг, см. [ROADMAP.ru.md](ROADMAP.ru.md) и
+[разбор инцидента](docs/postmortems/2026-10-28-collect-retry-loop.ru.md) о том, что пошло
+не так сначала.
+
+Офлайн-режим — детерминированная заглушка (не LLM), чтобы CI прогонял весь пайплайн.
+
+### Разработка
+
+```bash
+uv run ruff check . && uv run mypy && uv run pytest -q
+```
+
+Как проект делался с помощью AI и что решалось и проверялось вручную:
+[AI_WORKFLOW.ru.md](AI_WORKFLOW.ru.md).
+
+### Известные ограничения
+
+* Проверка SQL лексическая; настоящая страховка — подключение только на чтение. Это не
+  песочница уровня ОС.
+* Лимит времени проверяется между вызовами, поэтому один медленный HTTP-вызов ограничен
+  только таймаутом клиента (120 с).
+* Поиск по вики — простой поиск подстроки, без эмбеддингов.
+
+### Лицензия
+
+MIT
+
+---
+
+## English
+
 An LLM agent that does a data analyst's morning homework **overnight**: it reads the task
 tracker and the team wiki, checks data-quality hypotheses against the warehouse with
 **read-only** SQL, and publishes a short report — where every claim cites its source — into
@@ -13,7 +135,7 @@ The interesting part is not the LLM. It is the harness around it: what the model
 > Clean-room project on synthetic data. It reuses design ideas from an internal tool I
 > built at work; no code, prompts, data or names from that project are included.
 
-## Quickstart (no API key needed)
+### Quickstart (no API key needed)
 
 ```bash
 uv sync
@@ -31,7 +153,7 @@ cp .env.example .env   # put your key; base URL and model are prefilled
 uv run --env-file .env overnight run --llm http --vault "/path/to/your/vault"
 ```
 
-## How it works
+### How it works
 
 ```
 preflight → collect → analyze → synthesize → critique → finalize (gates) → publisher
@@ -49,7 +171,7 @@ preflight → collect → analyze → synthesize → critique → finalize (gate
 
 Details: [docs/architecture.md](docs/architecture.md) · decisions: [docs/decisions](docs/decisions)
 
-## Guardrails
+### Guardrails
 
 | Risk | Control | Test |
 |---|---|---|
@@ -64,7 +186,7 @@ Details: [docs/architecture.md](docs/architecture.md) · decisions: [docs/decisi
 | Two runs on one day overwrite each other | unique `run_id`, never date-keyed | `test_pipeline.py` |
 | Human notes overwritten | managed block markers, atomic write + backup | `test_publisher.py` |
 
-## Evaluation
+### Evaluation
 
 The demo warehouse is generated from a fixed seed with **planted defects** (duplicate
 responses, treatment/control leakage, responses before contact) plus one false hypothesis.
@@ -94,7 +216,7 @@ milestone, see [ROADMAP.md](ROADMAP.md) and the
 The offline policy is a deterministic stand-in (not an LLM) so CI exercises the whole
 pipeline.
 
-## Development
+### Development
 
 ```bash
 uv run ruff check . && uv run mypy && uv run pytest -q
@@ -103,7 +225,7 @@ uv run ruff check . && uv run mypy && uv run pytest -q
 How this was built with AI assistance, and what was decided or reviewed by hand:
 [AI_WORKFLOW.md](AI_WORKFLOW.md).
 
-## Known limits
+### Known limits
 
 * The SQL guard is lexical; the read-only connection is the real backstop. It is not an
   OS-level sandbox.
@@ -111,6 +233,6 @@ How this was built with AI assistance, and what was decided or reviewed by hand:
   the client timeout (120 s).
 * Wiki search is plain substring search; no embeddings yet.
 
-## License
+### License
 
 MIT
