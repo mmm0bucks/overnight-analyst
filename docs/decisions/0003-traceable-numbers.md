@@ -1,5 +1,7 @@
 # 0003 — Every number must be traceable to tool output
 
+**English** · [Русский](0003-traceable-numbers.ru.md)
+
 **Status:** accepted
 
 **Context.** LLMs are unreliable at arithmetic and happily produce plausible numbers.

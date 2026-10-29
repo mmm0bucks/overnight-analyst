@@ -1,5 +1,7 @@
 # 0002 — The agent never writes; a publisher does
 
+**English** · [Русский](0002-single-writer-publisher.ru.md)
+
 **Status:** accepted
 
 **Context.** The vault contains human notes. State (the hypothesis backlog) is the
