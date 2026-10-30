@@ -34,6 +34,29 @@ cp .env.example .env   # впишите ключ; адрес и модель у�
 uv run --env-file .env overnight run --llm http --vault "/путь/к/вашему/vault"
 ```
 
+### Оценка на нескольких прогонах
+
+```bash
+uv run --env-file .env overnight eval --runs 3 --llm http --today 2026-10-27
+```
+
+Каждый прогон идёт в своей папке `eval/<время>/<n>`, чтобы не видеть гипотезы, закрытые
+прошлым прогоном. Итог сверяется с `demo/expected.json` и пишется в
+`eval/<время>/summary.md`: таблица прогонов и точность по каждой гипотезе.
+
+### Docker
+
+```bash
+docker build -t overnight-analyst .
+docker run --rm overnight-analyst            # бесплатное офлайн-демо
+docker run --rm --env-file .env \
+  -v "$PWD/state:/app/state" -v "$PWD/vault:/app/vault" \
+  overnight-analyst sh -c "overnight init-demo && overnight run --llm http"
+```
+
+`state/` монтируется, чтобы общий счётчик токенов ключа жил между запусками контейнера.
+CI собирает образ и запускает в нём офлайн-демо на каждом PR.
+
 ### Как это работает
 
 ```
@@ -83,19 +106,23 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 | H4 кампания кончается раньше старта | нет | отклонена | отклонена, 0 |
 | H5 тест лучше контроля во всех кампаниях | да (4 из 4) | пропущена (нет готового SQL) | подтверждена, SQL написала сама |
 
-Колонка LLM: `qwen3.8-27b-noreason`, два чистых прогона — оба раза 5 из 5, все числа
-совпадают с заложенными ошибками.
+Колонка LLM — `qwen3.8-27b-noreason`. Оценка `overnight eval --runs 3`, каждый прогон в
+чистой папке:
 
-| Прогон | Токены | Вызовы модели | Время |
-|---|---|---|---|
-| 2026-10-28, до исправления циклов | 98,7 тыс. | 26 | 167 с |
-| 2026-10-29, после | 55,3 тыс. (−44%) | 18 | 577 с |
+| Оценка (3 прогона) | Верно | Статус | Токенов на прогон | Время на прогон |
+|---|---|---|---|---|
+| 2026-10-30, до исправления | 0 из 15 | 3× `partial` | 55–57 тыс. | 187–297 с |
+| 2026-10-30, после | **15 из 15** | 3× `ok` | 49–65 тыс. | 218–384 с |
 
-Время уходит в основном на то, что провайдер генерирует итоговый JSON этапа (до ~110 с на
-вызов), а не на инструменты. Два прогона — это случай, а не оценка; повторные прогоны —
-следующий шаг, см. [ROADMAP.ru.md](ROADMAP.ru.md) и
-[разбор инцидента](docs/postmortems/2026-10-28-collect-retry-loop.ru.md) о том, что пошло
-не так сначала.
+«До» analyze каждый раз падал одинаково: исправление битого JSON выпадало на последний ход и
+терялось. «После» в одном прогоне модель снова прислала испорченный JSON
+(`"sources": ["S": [], ...`) — исправление сработало, прогон дошёл до `ok`.
+Подробности: [разбор первой оценки](docs/postmortems/2026-10-30-first-eval.ru.md) и
+[разбор первых прогонов](docs/postmortems/2026-10-28-collect-retry-loop.ru.md).
+
+Время уходит в основном на то, что провайдер генерирует итоговый JSON этапа, а не на
+инструменты. Три прогона на одной модели и одних данных — это ещё не бенчмарк: следующий
+шаг — регрессионная проверка в CI, см. [ROADMAP.ru.md](ROADMAP.ru.md).
 
 Офлайн-режим — детерминированная заглушка (не LLM), чтобы CI прогонял весь пайплайн.
 
@@ -153,6 +180,29 @@ cp .env.example .env   # put your key; base URL and model are prefilled
 uv run --env-file .env overnight run --llm http --vault "/path/to/your/vault"
 ```
 
+### Evaluation over several runs
+
+```bash
+uv run --env-file .env overnight eval --runs 3 --llm http --today 2026-10-27
+```
+
+Every run gets its own folder `eval/<time>/<n>`, so it never sees hypotheses closed by an
+earlier run. Results are checked against `demo/expected.json` and written to
+`eval/<time>/summary.md`: one row per run plus accuracy per hypothesis.
+
+### Docker
+
+```bash
+docker build -t overnight-analyst .
+docker run --rm overnight-analyst            # free offline demo
+docker run --rm --env-file .env \
+  -v "$PWD/state:/app/state" -v "$PWD/vault:/app/vault" \
+  overnight-analyst sh -c "overnight init-demo && overnight run --llm http"
+```
+
+`state/` is mounted so the key's lifetime token counter survives container restarts.
+CI builds the image and runs the offline demo in it on every PR.
+
 ### How it works
 
 ```
@@ -200,18 +250,23 @@ That gives free ground truth:
 | H4 campaign ends before start | no | rejected | rejected, 0 |
 | H5 treatment beats control everywhere | yes (4/4 campaigns) | skipped (no SQL given) | confirmed, wrote its own SQL |
 
-LLM column: `qwen3.8-27b-noreason`, two clean runs — 5/5 correct both times, every count
-matches the planted defects.
+LLM column — `qwen3.8-27b-noreason`. Evaluated with `overnight eval --runs 3`, every run in
+a fresh folder:
 
-| Run | Tokens | Model calls | Time |
-|---|---|---|---|
-| 2026-10-28, before the loop fixes | 98.7k | 26 | 167 s |
-| 2026-10-29, after | 55.3k (−44%) | 18 | 577 s |
+| Eval (3 runs) | Correct | Status | Tokens per run | Time per run |
+|---|---|---|---|---|
+| 2026-10-30, before the fix | 0/15 | 3× `partial` | 55–57k | 187–297 s |
+| 2026-10-30, after | **15/15** | 3× `ok` | 49–65k | 218–384 s |
 
-Time is dominated by the provider generating the final JSON of each stage (up to ~110 s per
-call), not by tools. Two runs are an anecdote, not an evaluation — repeated runs are the next
-milestone, see [ROADMAP.md](ROADMAP.md) and the
-[postmortem](docs/postmortems/2026-10-28-collect-retry-loop.md) for what went wrong first.
+Before, analyze failed the same way every time: the repair of a broken JSON answer landed on
+the last turn and was lost. After, one run again got corrupted JSON from the model
+(`"sources": ["S": [], ...`) — the repair kicked in and the run finished `ok`.
+Details: [first eval postmortem](docs/postmortems/2026-10-30-first-eval.md) and
+[first runs postmortem](docs/postmortems/2026-10-28-collect-retry-loop.md).
+
+Time is dominated by the provider generating each stage's final JSON, not by tools. Three
+runs on one model and one dataset are not a benchmark yet: the next step is a regression
+check in CI, see [ROADMAP.md](ROADMAP.md).
 
 The offline policy is a deterministic stand-in (not an LLM) so CI exercises the whole
 pipeline.

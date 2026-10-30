@@ -37,6 +37,7 @@ What was checked, found and changed by hand. Each entry: what, where, why.
 | 2026-10-29 | run 2 correct but wasteful: stages re-read the same pages until the turn limit | `tools.py`, `agent.py` | dedupe identical calls per stage, `max_turns` 12 → 8 |
 | 2026-10-29 | run 3 `partial`: gate rejected true counts that were list lengths | `gates.py` | list length counts as a traceable number |
 | 2026-10-29 | lifetime token counter lived under `--root`: a fresh `--root` bypassed the key cap | `cli.py` | counter moved to `./state/spend.json`, test updated |
+| 2026-10-30 | first eval: analyze's JSON repair landed on the last turn and was lost (2/2 runs); spend counter saved only at end of run | `agent.py`, `cli.py` | repair gets its own turn, SQL quota 5 → 8, spend saved after every call — [postmortem](docs/postmortems/2026-10-30-first-eval.md) |
 | | _next entries: my own review of each module_ | | |
 
 ## Rules I follow when working with AI here

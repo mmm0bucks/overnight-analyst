@@ -25,3 +25,12 @@ jobs:
         run: |
           uv run overnight init-demo
           uv run overnight run --today 2026-10-27
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t overnight-analyst .
+      - name: Smoke run in container (offline)
+        run: docker run --rm overnight-analyst
