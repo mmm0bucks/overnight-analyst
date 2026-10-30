@@ -20,7 +20,7 @@ SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
     "read_wiki": ("Read a wiki page.", {"type": "object", "required": ["page"],
                                         "properties": {"page": {"type": "string"}}}),
     "run_sql": ("Run ONE read-only DuckDB query (SELECT/WITH/SHOW/DESCRIBE/EXPLAIN). "
-                "Tables: campaigns, contacts, responses. Max 1000 rows, 5 queries per stage.",
+                "Tables: campaigns, contacts, responses. Max 1000 rows, 8 queries per stage.",
                 {"type": "object", "required": ["query", "purpose"],
                  "properties": {"query": {"type": "string"}, "purpose": {"type": "string"}}}),
 }
@@ -35,7 +35,7 @@ class Source:
 
 
 class Toolbox:
-    def __init__(self, workspace: Path, today: date, sql_per_stage: int = 5,
+    def __init__(self, workspace: Path, today: date, sql_per_stage: int = 8,
                  max_rows: int = 1000) -> None:
         self.ws, self.today = workspace, today
         self.sql_per_stage, self.max_rows, self.sql_left = sql_per_stage, max_rows, sql_per_stage

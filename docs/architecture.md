@@ -35,6 +35,7 @@ overnight run
 | `llm.py` | OpenAI-compatible HTTP client with retry policy; scripted client for tests |
 | `offline.py` | deterministic rule-based policy for CI and the free demo (not an LLM) |
 | `demo_data.py` | seeded synthetic warehouse with planted defects |
+| `evaluate.py` | scores repeated runs against `demo/expected.json` |
 
 ## Trust boundaries
 

@@ -20,7 +20,7 @@ class Limits:
     max_tokens: int = 100_000  # per run
     max_tool_calls: int = 60
     max_seconds: float = 900
-    max_sql_per_stage: int = 5
+    max_sql_per_stage: int = 8  # analyze needs ~1 query per hypothesis + checks
     max_sql_rows: int = 1000
 
 
@@ -65,18 +65,19 @@ def run_stage(stage: Stage, llm: LLM, user: str, box: Toolbox, budget: Budget,
     messages: list[dict[str, Any]] = [{"role": "system", "content": stage.system()},
                                       {"role": "user", "content": user}]
     offered = stage.tools
-    repaired = False
-    for turn in range(max_turns):
+    repaired, turn, last = False, 0, max_turns - 1
+    while turn <= last:
         budget.check()
         # Take tools away once their quota is gone, and on the last turn: models keep
         # retrying a refused tool instead of answering (seen in the first real run).
-        names = [] if turn == max_turns - 1 else box.available(stage.tools)
+        names = [] if turn == last else box.available(stage.tools)
         if names != offered:
             offered = names
             messages.append({"role": "user", "content": "Tools now available: "
                              f"{', '.join(names) or 'none'}. If you cannot call what you "
                              "need, answer now with the JSON from what you already have."})
         resp = llm.complete(messages, box.schemas(offered))
+        turn += 1
         budget.tokens += resp.tokens
         emit({"event": "llm", "stage": stage.name, "tokens": resp.tokens,
               "tools": [c.name for c in resp.tool_calls]})
@@ -96,8 +97,10 @@ def run_stage(stage: Stage, llm: LLM, user: str, box: Toolbox, budget: Budget,
         except (ValueError, ValidationError) as e:
             if repaired:
                 raise StageFailed(f"{stage.name}: invalid output after repair: {e}") from e
-            repaired = True
-            emit({"event": "repair", "stage": stage.name, "error": str(e)[:300]})
+            repaired, last = True, max(last, turn)  # a repair always gets its own turn
+            near = (e.doc[max(0, e.pos - 150):e.pos + 50]  # what the model actually wrote
+                    if isinstance(e, json.JSONDecodeError) else "")
+            emit({"event": "repair", "stage": stage.name, "error": str(e)[:300], "near": near})
             messages += [{"role": "assistant", "content": resp.content},
                          {"role": "user", "content": f"Output broke the contract: {e}. "
                                                      "Reply with the corrected JSON only."}]

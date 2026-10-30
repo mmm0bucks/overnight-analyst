@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.vscode
+.env
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+runs
+state
+eval
+vault
+tests
+docs
+*.duckdb
+*.duckdb.wal

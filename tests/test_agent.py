@@ -81,3 +81,9 @@ def test_repeated_call_is_not_run_again(ws: Path) -> None:
     _, llm, box, _ = _run(ws, _call("list_wiki_pages"), _call("list_wiki_pages"), ACCEPT)
     assert list(box.sources) == ["S1"] and "already returned above as S1" in \
         llm.seen[2][-1]["content"]
+
+
+def test_bad_json_on_last_turn_still_gets_a_repair(ws: Path) -> None:
+    calls = [_call("list_wiki_pages", n=i) for i in range(7)]  # turns 1-7 use tools
+    out, *_ = _run(ws, *calls, LLMResponse(content="{broken"), ACCEPT)
+    assert out.verdict == "accept"
