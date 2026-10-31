@@ -11,12 +11,17 @@ from typing import Any
 
 import duckdb
 
+from overnight.rag import Embedder, HashEmbedder, WikiIndex, chunk_pages
 from overnight.sqlguard import validate
 
 NO_ARGS: dict[str, Any] = {"type": "object", "properties": {}}
 SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
     "list_tasks": ("List tracker tasks with due dates and an 'overdue' flag.", NO_ARGS),
     "list_wiki_pages": ("List wiki page names.", NO_ARGS),
+    "search_wiki": ("Hybrid (keyword + semantic) search over the team wiki. Returns the best "
+                    "matching sections with their page names. Works for Russian queries too.",
+                    {"type": "object", "required": ["query"],
+                     "properties": {"query": {"type": "string"}}}),
     "read_wiki": ("Read a wiki page.", {"type": "object", "required": ["page"],
                                         "properties": {"page": {"type": "string"}}}),
     "run_sql": ("Run ONE read-only DuckDB query (SELECT/WITH/SHOW/DESCRIBE/EXPLAIN). "
@@ -36,8 +41,10 @@ class Source:
 
 class Toolbox:
     def __init__(self, workspace: Path, today: date, sql_per_stage: int = 8,
-                 max_rows: int = 1000) -> None:
+                 max_rows: int = 1000, embedder: Embedder | None = None) -> None:
         self.ws, self.today = workspace, today
+        self.embedder = embedder or HashEmbedder()
+        self.index: WikiIndex | None = None  # built on first search
         self.sql_per_stage, self.max_rows, self.sql_left = sql_per_stage, max_rows, sql_per_stage
         self.sources: dict[str, Source] = {}
         self.seen: dict[str, str] = {}  # call -> source id, within the current stage
@@ -78,6 +85,11 @@ class Toolbox:
 
     def list_wiki_pages(self) -> list[str]:
         return sorted(p.stem for p in (self.ws / "wiki").glob("*.md"))
+
+    def search_wiki(self, query: str) -> list[dict[str, str]]:
+        if self.index is None:
+            self.index = WikiIndex(chunk_pages(self.ws / "wiki"), self.embedder)
+        return [{"page": c.page, "section": c.text} for c in self.index.search(query, k=4)]
 
     def read_wiki(self, page: str) -> str:
         if page not in self.list_wiki_pages():  # also blocks ../ traversal

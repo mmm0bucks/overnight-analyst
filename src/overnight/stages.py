@@ -72,10 +72,11 @@ class Stage:
 STAGES = [
     Stage("collect", "You are the collector. Gather the morning context: tasks (especially "
           "overdue), wiki pages, warehouse volumes. Do NOT analyze or judge.",
-          ["list_tasks", "list_wiki_pages", "read_wiki", "run_sql"], CollectOut, []),
+          ["list_tasks", "list_wiki_pages", "search_wiki", "read_wiki", "run_sql"], CollectOut, []),
     Stage("analyze", "You are the analyst. Check each hypothesis in the input with read-only "
           "SQL and mark it confirmed, rejected or inconclusive. Use the wiki for definitions.",
-          ["list_wiki_pages", "read_wiki", "run_sql"], AnalyzeOut, ["collect", "hypotheses"]),
+          ["list_wiki_pages", "search_wiki", "read_wiki", "run_sql"], AnalyzeOut,
+          ["collect", "hypotheses"]),
     Stage("synthesize", "You are the editor. Turn the input into a short morning report. "
           "Reuse claims only: rephrase, group, prioritize. Add NO new facts or sources.",
           [], SynthesizeOut, ["collect", "analyze"]),
