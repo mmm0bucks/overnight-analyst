@@ -44,6 +44,33 @@ uv run --env-file .env overnight eval --runs 3 --llm http --today 2026-10-27
 прошлым прогоном. Итог сверяется с `demo/expected.json` и пишется в
 `eval/<время>/summary.md`: таблица прогонов и точность по каждой гипотезе.
 
+### Поиск по вики (RAG)
+
+Инструмент `search_wiki`: гибридный поиск по разделам страниц вики — BM25 по словам плюс
+векторы в Qdrant, объединённые через Reciprocal Rank Fusion. Векторы считает многоязычная
+модель `bge-m3` через тот же OpenAI-совместимый API (`/v1/embeddings`), поэтому работают и
+русские вопросы к английской вики. Токены эмбеддингов идут в тот же общий лимит ключа. Каждый найденный раздел, как
+и любой вызов инструмента, становится источником `S<n>`.
+
+```bash
+uv run --env-file .env overnight rag-eval --embed http   # recall@3 и MRR на 24 вопросах
+uv run --env-file .env overnight run --llm http --embed http
+```
+
+Результат на 24 размеченных вопросах (20 на английском, 4 на русском), 2026-10-31:
+
+| Поиск | recall@3 | MRR |
+|---|---|---|
+| BM25 (слова) | 0.73 | 0.65 |
+| Векторный (`bge-m3`) | 0.98 | 0.97 |
+| **Гибрид (RRF)** | **0.98** | **1.00** |
+
+BM25 проваливает перефразированные и русские вопросы, векторный поиск их находит, а гибрид
+ставит нужную страницу первой во всех 24 случаях. Цена прогона оценки — около 2 тыс. токенов.
+
+Без `--embed http` используется хеш-эмбеддер: детерминированный, без зависимостей, но
+**не смысловой** — он нужен, чтобы CI проверял весь путь без ключа API.
+
 ### Docker
 
 ```bash
@@ -141,7 +168,7 @@ uv run ruff check . && uv run mypy && uv run pytest -q
   песочница уровня ОС.
 * Лимит времени проверяется между вызовами, поэтому один медленный HTTP-вызов ограничен
   только таймаутом клиента (120 с).
-* Поиск по вики — простой поиск подстроки, без эмбеддингов.
+* Поиск по вики без реранкера; оценён на 24 вопросах, а не на реальном корпусе.
 
 ### Лицензия
 
@@ -189,6 +216,33 @@ uv run --env-file .env overnight eval --runs 3 --llm http --today 2026-10-27
 Every run gets its own folder `eval/<time>/<n>`, so it never sees hypotheses closed by an
 earlier run. Results are checked against `demo/expected.json` and written to
 `eval/<time>/summary.md`: one row per run plus accuracy per hypothesis.
+
+### Wiki search (RAG)
+
+The `search_wiki` tool does hybrid search over wiki page sections: BM25 on words plus
+vectors in Qdrant, merged with Reciprocal Rank Fusion. Vectors come from the multilingual
+`bge-m3` model through the same OpenAI-compatible API (`/v1/embeddings`), so Russian
+questions work against the English wiki. Embedding tokens count against the same key cap. Every section found becomes a source
+`S<n>`, like any other tool call.
+
+```bash
+uv run --env-file .env overnight rag-eval --embed http   # recall@3 and MRR, 24 questions
+uv run --env-file .env overnight run --llm http --embed http
+```
+
+Result on 24 labelled questions (20 English, 4 Russian), 2026-10-31:
+
+| Search | recall@3 | MRR |
+|---|---|---|
+| BM25 (words) | 0.73 | 0.65 |
+| Dense (`bge-m3`) | 0.98 | 0.97 |
+| **Hybrid (RRF)** | **0.98** | **1.00** |
+
+BM25 misses paraphrased and Russian questions, dense search finds them, and hybrid puts the
+right page first for all 24. One eval run costs about 2k tokens.
+
+Without `--embed http` a hashing embedder is used: deterministic and dependency-free but
+**not semantic** — it lets CI exercise the whole path without an API key.
 
 ### Docker
 
@@ -286,7 +340,7 @@ How this was built with AI assistance, and what was decided or reviewed by hand:
   OS-level sandbox.
 * Wall-clock limits are checked between calls, so one slow HTTP call is bounded only by
   the client timeout (120 s).
-* Wiki search is plain substring search; no embeddings yet.
+* Wiki search has no reranker yet; it is evaluated on 24 questions, not a real corpus.
 
 ### License
 

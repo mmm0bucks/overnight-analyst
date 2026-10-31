@@ -12,10 +12,11 @@ from typing import Any
 
 from overnight import demo_data
 from overnight.agent import Limits
-from overnight.evaluate import write_summary
+from overnight.evaluate import rag_summary, write_summary
 from overnight.llm import LLM, HttpLLM, LLMResponse
 from overnight.offline import OfflinePolicy
 from overnight.orchestrator import RunResult, run
+from overnight.rag import Embedder, HashEmbedder, HttpEmbedder
 
 
 class Metered:
@@ -28,26 +29,52 @@ class Metered:
     def complete(self, messages: list[dict[str, Any]],
                  tools: list[dict[str, Any]]) -> LLMResponse:
         resp = self.llm.complete(messages, tools)
-        self.spent += resp.tokens
+        self.add(resp.tokens)
+        return resp
+
+    def add(self, tokens: int) -> None:
+        self.spent += tokens
         self.file.parent.mkdir(exist_ok=True)
         self.file.write_text(json.dumps({"tokens": self.spent}))
-        return resp
+
+
+def add_spend(tokens: int, file: Path = Path("state") / "spend.json") -> None:
+    """Add tokens spent outside the LLM calls (embeddings) to the key's counter."""
+    if tokens:
+        spent = json.loads(file.read_text())["tokens"] if file.exists() else 0
+        file.parent.mkdir(exist_ok=True)
+        file.write_text(json.dumps({"tokens": spent + tokens}))
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="overnight")
-    p.add_argument("cmd", choices=["init-demo", "run", "eval"])
+    p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval"])
     p.add_argument("--root", type=Path, default=Path.cwd(), help="where runs/ and state/ live")
     p.add_argument("--workspace", type=Path, help="inputs (default: <root>/demo)")
     p.add_argument("--vault", type=Path, help="Obsidian vault (default: <root>/vault)")
     p.add_argument("--llm", choices=["offline", "http"], default="offline")
     p.add_argument("--today", type=date.fromisoformat, default=date.today())
     p.add_argument("--runs", type=int, default=3, help="eval: how many fresh runs")
+    p.add_argument("--embed", choices=["hash", "http"], default="hash",
+                   help="wiki search vectors: hash (offline, not semantic) or the API's model")
     a = p.parse_args(argv)
     ws = a.workspace or a.root / "demo"
 
     if a.cmd == "init-demo":
         print("warehouse:", demo_data.build(ws / "warehouse.duckdb"))
+        return 0
+    embedder: Embedder = HashEmbedder()
+    if a.embed == "http":
+        url, key = os.getenv("OVERNIGHT_LLM_BASE_URL"), os.getenv("OVERNIGHT_LLM_API_KEY")
+        if not (url and key):
+            p.error("set OVERNIGHT_LLM_BASE_URL and _API_KEY (see .env.example)")
+        embedder = HttpEmbedder(url, key, os.getenv("OVERNIGHT_EMBED_MODEL", "bge-m3"))
+    if a.cmd == "rag-eval":
+        out = a.root / "eval" / f"rag-{datetime.now():%Y%m%d-%H%M%S}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rag_summary(ws, embedder), encoding="utf-8")
+        print(out.read_text(encoding="utf-8"), f"saved: {out}", sep="\n")
+        add_spend(embedder.tokens)
         return 0
 
     # Lifetime cap for a prepaid key, shared by all --root dirs: ./state/spend.json in the
@@ -69,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     roots = ([a.root] if a.cmd == "run" else
              [a.root / "eval" / stamp / str(i) for i in range(1, a.runs + 1)])
     results: list[RunResult] = []
+    counted = 0  # embedding tokens already added to the counter
     for root in roots:
         per_run = int(os.getenv("OVERNIGHT_MAX_TOKENS", Limits.max_tokens))
         if meter and total:
@@ -78,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         limits = Limits(max_tokens=per_run,
                         max_tool_calls=int(os.getenv("OVERNIGHT_MAX_TOOL_CALLS", 60)),
                         max_seconds=float(os.getenv("OVERNIGHT_MAX_SECONDS", 900)))
-        res = run(ws, root, a.vault or root / "vault", llm, limits, a.today, ping)
+        res = run(ws, root, a.vault or root / "vault", llm, limits, a.today, ping, embedder)
         if meter:
             print(f"tokens: key total {meter.spent}" + (f"/{total}" if total else ""))
         print(f"run {res.run_id}: {res.status}")
@@ -86,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  [{'x' if g.passed else ' '}] {g.name} {g.detail}")
         print("report:", res.report)
         results.append(res)
+        if meter:  # embedding tokens go to the same key counter
+            meter.add(embedder.tokens - counted)
+        else:
+            add_spend(embedder.tokens - counted)
+        counted = embedder.tokens
 
     if a.cmd == "eval":
         print("summary:", write_summary(results, ws, a.root / "eval" / stamp / "summary.md"))

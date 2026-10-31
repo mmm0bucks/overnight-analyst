@@ -11,7 +11,8 @@ Each item is planned as a separate pull request.
 - [ ] GitHub Issues adapter for the tracker (read-only)
 - [ ] Per-stage wall-clock timeout (run stages in a subprocess, kill on timeout)
 - [ ] Code sandbox for analysis scripts: plan → hash-confirmed execution → AST/runtime guards
-- [ ] Hybrid retrieval (BM25 + embeddings) over the wiki and past reports
+- [x] Hybrid wiki search: BM25 + bge-m3 embeddings in Qdrant + RRF, recall@k / MRR eval
+- [ ] Reranker and search over past reports
 - [ ] Obsidian skill for Claude: write notes that follow the vault's conventions
 - [x] Dockerfile, image built and smoke-run in CI
 - [ ] Scheduled run (cron / Task Scheduler) docs

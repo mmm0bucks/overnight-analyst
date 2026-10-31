@@ -1,4 +1,5 @@
-"""Score repeated runs against the demo's ground truth (demo/expected.json)."""
+"""Score repeated runs against the demo's ground truth (demo/expected.json), and the wiki
+search against labelled queries (demo/rag_eval.json)."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import json
 from pathlib import Path
 
 from overnight.orchestrator import RunResult
+from overnight.rag import Embedder, WikiIndex, chunk_pages
 
 
 def summarize(results: list[RunResult], expected: dict[str, str]) -> str:
@@ -37,3 +39,21 @@ def write_summary(results: list[RunResult], workspace: Path, out: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(summarize(results, expected), encoding="utf-8")
     return out
+
+
+def rag_summary(workspace: Path, embedder: Embedder, k: int = 3) -> str:
+    """Page-level recall@k and MRR for bm25, dense and hybrid search."""
+    queries = json.loads((workspace / "rag_eval.json").read_text(encoding="utf-8"))
+    index = WikiIndex(chunk_pages(workspace / "wiki"), embedder)
+    rows = []
+    for mode in ("bm25", "dense", "hybrid"):
+        recall = mrr = 0.0
+        for q in queries:
+            pages = list(dict.fromkeys(c.page for c in index.search(q["q"], k=20, mode=mode)))
+            relevant = set(q["relevant"])
+            recall += len(relevant & set(pages[:k])) / len(relevant)
+            mrr += next((1 / (i + 1) for i, p in enumerate(pages) if p in relevant), 0.0)
+        rows.append(f"| {mode} | {recall / len(queries):.2f} | {mrr / len(queries):.2f} |")
+    name = type(embedder).__name__
+    return "\n".join([f"# Wiki search: {len(queries)} queries, embedder {name}", "",
+                      f"| mode | recall@{k} | MRR |", "|---|---|---|", *rows, ""])

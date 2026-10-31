@@ -17,6 +17,7 @@ from overnight.agent import Budget, BudgetExceeded, Limits, StageFailed, run_sta
 from overnight.gates import Gate, run_gates, status
 from overnight.llm import LLM, LLMError
 from overnight.publisher import publish
+from overnight.rag import Embedder
 from overnight.stages import STAGES, AnalyzeOut, SynthesizeOut
 from overnight.tools import Toolbox
 
@@ -33,7 +34,7 @@ class RunResult:
 
 
 def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, today: date,
-        ping: Callable[[], None] | None = None) -> RunResult:
+        ping: Callable[[], None] | None = None, embedder: Embedder | None = None) -> RunResult:
     run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"  # unique per run
     run_dir = root / "runs" / run_id
     run_dir.mkdir(parents=True)
@@ -49,7 +50,7 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
     for h in hypotheses:
         h.setdefault("status", "open")
     budget, box = Budget(limits), Toolbox(workspace, today, limits.max_sql_per_stage,
-                                          limits.max_sql_rows)
+                                          limits.max_sql_rows, embedder)
     arts: dict[str, BaseModel] = {}
     errors: dict[str, str] = {}
 
