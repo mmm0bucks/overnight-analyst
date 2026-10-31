@@ -12,6 +12,10 @@ from pydantic import BaseModel
 from overnight.stages import AnalyzeOut, Claim, CollectOut, CritiqueOut, SynthesizeOut
 from overnight.tools import Source
 
+# Links and images in the report: Obsidian renders images, so a URL planted by an injected
+# document could leak data to an outside server the moment the note is opened.
+EXTERNAL = re.compile(r"https?://|www\.|!\[")
+
 
 @dataclass
 class Gate:
@@ -60,6 +64,11 @@ def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
     upstream = {s for st in ("collect", "analyze")
                 for c in by_stage.get(st, []) for s in c.sources}
     new = sorted({s for c in by_stage.get("synthesize", []) for s in c.sources} - upstream)
+    report = arts.get("synthesize")
+    texts = [c.text for c in by_stage.get("synthesize", [])]
+    if isinstance(report, SynthesizeOut):
+        texts.append(report.headline)
+    links = [t for t in texts if EXTERNAL.search(t)]
     crit = arts.get("critique")
     verdict = crit.verdict if isinstance(crit, CritiqueOut) else "missing"
     return [
@@ -70,6 +79,7 @@ def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
         Gate("numbers_traceable", not untraceable, "; ".join(untraceable[:5])),
         Gate("synthesis_adds_no_sources", not new, ", ".join(new)),
         Gate("critique_not_rejected", verdict in ("accept", "revise"), verdict),
+        Gate("no_external_links", not links, "; ".join(links[:3])),
     ]
 
 
