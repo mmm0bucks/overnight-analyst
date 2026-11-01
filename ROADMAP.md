@@ -9,6 +9,11 @@ Each item is planned as a separate pull request.
 - [x] Eval harness: N fresh runs, per-hypothesis accuracy against `demo/expected.json`
 - [ ] Regression check in CI on recorded model answers
 - [ ] GitHub Issues adapter for the tracker (read-only)
+- [x] Prompt-injection red-team set: 5 attacks, attempt vs success, spotlighting, link gate
+- [ ] LLM-as-judge with calibration (Cohen's kappa) and harder negative cases
+- [ ] FastAPI service + ADR "why not LangGraph"
+- [ ] MCP server for the read-only tools
+- [ ] OpenTelemetry GenAI trace export (view in Phoenix)
 - [ ] Per-stage wall-clock timeout (run stages in a subprocess, kill on timeout)
 - [ ] Code sandbox for analysis scripts: plan → hash-confirmed execution → AST/runtime guards
 - [x] Hybrid wiki search: BM25 + bge-m3 embeddings in Qdrant + RRF, recall@k / MRR eval

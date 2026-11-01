@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from overnight.llm import LLMResponse, ToolCall
+from overnight.tools import unwrap
 
 VOLUME_SQL = "SELECT campaign_id, count(*) AS contacts FROM contacts GROUP BY 1 ORDER BY 1"
 
@@ -26,7 +27,7 @@ class OfflinePolicy:
                  tools: list[dict[str, Any]]) -> LLMResponse:
         stage = re.search(r"STAGE: (\w+)", messages[0]["content"])
         inputs = json.loads(messages[1]["content"].split("<input>")[1].split("</input>")[0])
-        results = [json.loads(m["content"]) for m in messages if m["role"] == "tool"]
+        results = [unwrap(m["content"]) for m in messages if m["role"] == "tool"]
         return getattr(self, stage.group(1) if stage else "")(inputs, results)  # type: ignore[no-any-return]
 
     def collect(self, inputs: dict[str, Any], results: list[dict[str, Any]]) -> LLMResponse:
@@ -35,8 +36,9 @@ class OfflinePolicy:
                 ToolCall("c1", "list_tasks", {}), ToolCall("c2", "list_wiki_pages", {}),
                 ToolCall("c3", "run_sql", {"query": VOLUME_SQL, "purpose": "volumes"})])
         tasks, pages, volumes = results
-        overdue = [t for t in tasks["result"] if t["overdue"]]
-        facts = [_claim(f"{len(overdue)} task(s) overdue", tasks["source"])]
+        overdue = [t for t in tasks["result"]["tasks"] if t["overdue"]]
+        n = tasks["result"]["overdue_count"]
+        facts = [_claim(f"{n} task(s) overdue", tasks["source"], n)]
         facts += [_claim(f"Overdue: {t['id']} {t['title']} (due {t['due']})", tasks["source"])
                   for t in overdue]
         facts += [_claim(f"Wiki has {len(pages['result'])} pages", pages["source"])]

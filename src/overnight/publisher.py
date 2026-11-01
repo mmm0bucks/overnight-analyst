@@ -22,8 +22,12 @@ SECRET = re.compile(r"sk-[\w-]{16,}|Bearer\s+[\w.-]{16,}|"
                     r"(?i:password|secret|api[_-]?key|token)\s*[:=]\s*\S+")
 
 
+LINK = re.compile(r"!?\[[^\]]*\]\([^)]*\)|https?://\S+|www\.\S+")
+
+
 def redact(text: str) -> str:
-    return SECRET.sub("[REDACTED]", text)
+    """Remove secret-looking strings and every link or image (defense in depth with the gate)."""
+    return LINK.sub("[link removed]", SECRET.sub("[REDACTED]", text))
 
 
 def atomic_write(path: Path, text: str, backup_dir: Path | None = None) -> None:

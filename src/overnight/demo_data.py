@@ -13,6 +13,7 @@ from pathlib import Path
 import duckdb
 
 SEED = 42
+TODAY = date(2026, 10, 31)  # the demo's "now": evals run on this date
 CAMPAIGNS = [
     # id, name, channel, start, days
     (101, "Autumn data bundle", "sms", date(2026, 9, 1), 30),

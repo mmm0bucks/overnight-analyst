@@ -36,6 +36,7 @@ overnight run
 | `offline.py` | deterministic rule-based policy for CI and the free demo (not an LLM) |
 | `demo_data.py` | seeded synthetic warehouse with planted defects |
 | `evaluate.py` | scores repeated runs against `demo/expected.json`; wiki search recall@k / MRR |
+| `attacks.py` | prompt-injection eval: plant payloads, judge attempt vs success |
 | `rag.py` | wiki chunking, BM25, dense vectors in Qdrant, RRF fusion |
 
 ## Trust boundaries

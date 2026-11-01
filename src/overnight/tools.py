@@ -16,7 +16,7 @@ from overnight.sqlguard import validate
 
 NO_ARGS: dict[str, Any] = {"type": "object", "properties": {}}
 SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
-    "list_tasks": ("List tracker tasks with due dates and an 'overdue' flag.", NO_ARGS),
+    "list_tasks": ("List tracker tasks: due dates, 'overdue' flags, overdue_count.", NO_ARGS),
     "list_wiki_pages": ("List wiki page names.", NO_ARGS),
     "search_wiki": ("Hybrid (keyword + semantic) search over the team wiki. Returns the best "
                     "matching sections with their page names. Works for Russian queries too.",
@@ -29,6 +29,23 @@ SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
                 {"type": "object", "required": ["query", "purpose"],
                  "properties": {"query": {"type": "string"}, "purpose": {"type": "string"}}}),
 }
+
+
+UNTRUSTED_OPEN, UNTRUSTED_CLOSE = "<untrusted_data>", "</untrusted_data>"
+
+
+def spotlight(text: str) -> str:
+    """Mark tool output as data, not instructions (spotlighting). A closing tag planted in the
+    data becomes "<\\/untrusted" — still the same JSON string, but it cannot end the block."""
+    escaped = text.replace("</untrusted", "<\\/untrusted")
+    return f"{UNTRUSTED_OPEN}\n{escaped}\n{UNTRUSTED_CLOSE}"
+
+
+def unwrap(text: str) -> Any:
+    """Parse a tool message back to JSON (spotlighted result or plain error)."""
+    if text.startswith(UNTRUSTED_OPEN):
+        text = text[len(UNTRUSTED_OPEN):-len(UNTRUSTED_CLOSE)]
+    return json.loads(text)
 
 
 @dataclass
@@ -75,13 +92,16 @@ class Toolbox:
         sid = f"S{len(self.sources) + 1}"
         self.sources[sid] = Source(sid, name, args, result)
         self.seen[key] = sid
-        return json.dumps({"source": sid, "result": result}, ensure_ascii=False, default=str)
+        return spotlight(json.dumps({"source": sid, "result": result}, ensure_ascii=False,
+                                    default=str))
 
-    def list_tasks(self) -> list[dict[str, Any]]:
+    def list_tasks(self) -> dict[str, Any]:
         tasks = json.loads((self.ws / "tasks.json").read_text(encoding="utf-8"))
         today = self.today.isoformat()
-        return [{**t, "overdue": t["status"] != "done" and (t.get("due") or today) < today}
-                for t in tasks]
+        tasks = [{**t, "overdue": t["status"] != "done" and (t.get("due") or today) < today}
+                 for t in tasks]
+        # the count comes from code: a number the model has to count itself is untraceable
+        return {"overdue_count": sum(t["overdue"] for t in tasks), "tasks": tasks}
 
     def list_wiki_pages(self) -> list[str]:
         return sorted(p.stem for p in (self.ws / "wiki").glob("*.md"))
@@ -101,7 +121,8 @@ class Toolbox:
             raise RuntimeError(f"SQL quota of {self.sql_per_stage} per stage is used up")
         q = validate(query, self.max_rows)  # layer 1: lexical guard
         self.sql_left -= 1
-        with duckdb.connect(str(self.ws / "warehouse.duckdb"), read_only=True) as con:  # layer 2
+        with duckdb.connect(str(self.ws / "warehouse.duckdb"), read_only=True,  # layer 2
+                            config={"enable_external_access": False}) as con:
             cur = con.execute(q)
             cols = [d[0] for d in cur.description or []]
             rows = [[v if isinstance(v, (int, float, str)) or v is None else str(v)

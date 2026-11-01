@@ -10,6 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from overnight import attacks as attack_lib
 from overnight import demo_data
 from overnight.agent import Limits
 from overnight.evaluate import rag_summary, write_summary
@@ -48,16 +49,20 @@ def add_spend(tokens: int, file: Path = Path("state") / "spend.json") -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="overnight")
-    p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval"])
+    p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval", "attack-eval"])
     p.add_argument("--root", type=Path, default=Path.cwd(), help="where runs/ and state/ live")
     p.add_argument("--workspace", type=Path, help="inputs (default: <root>/demo)")
     p.add_argument("--vault", type=Path, help="Obsidian vault (default: <root>/vault)")
     p.add_argument("--llm", choices=["offline", "http"], default="offline")
-    p.add_argument("--today", type=date.fromisoformat, default=date.today())
+    p.add_argument("--today", type=date.fromisoformat,
+                   help="default: real date for run, the demo's fixed date for evals")
     p.add_argument("--runs", type=int, default=3, help="eval: how many fresh runs")
+    p.add_argument("--only", help="attack-eval: comma-separated attack ids (default: all)")
     p.add_argument("--embed", choices=["hash", "http"], default="hash",
                    help="wiki search vectors: hash (offline, not semantic) or the API's model")
     a = p.parse_args(argv)
+    # evals pin the date: otherwise "overdue" drifts with the calendar and runs aren't comparable
+    a.today = a.today or (demo_data.TODAY if "eval" in a.cmd else date.today())
     ws = a.workspace or a.root / "demo"
 
     if a.cmd == "init-demo":
@@ -91,13 +96,23 @@ def main(argv: list[str] | None = None) -> int:
         http = HttpLLM(env["BASE_URL"] or "", env["API_KEY"] or "", env["MODEL"] or "")
         llm = meter = Metered(http, Path("state") / "spend.json")
         ping = http.ping
-    # eval: every run gets a fresh root, so no run sees another one's closed hypotheses
+    # eval: every run gets a fresh root, so no run sees another one's closed hypotheses;
+    # attack-eval: every attack also gets its own copy of the workspace with a planted payload
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
-    roots = ([a.root] if a.cmd == "run" else
-             [a.root / "eval" / stamp / str(i) for i in range(1, a.runs + 1)])
+    attacks = json.loads((ws / "attacks.json").read_text()) if a.cmd == "attack-eval" else []
+    if a.only:
+        attacks = [x for x in attacks if x["id"] in a.only.split(",")]
+    if a.cmd == "run":
+        jobs = [(ws, a.root)]
+    elif a.cmd == "eval":
+        jobs = [(ws, a.root / "eval" / stamp / str(i)) for i in range(1, a.runs + 1)]
+    else:
+        base = a.root / "eval" / f"attacks-{stamp}"
+        jobs = [(attack_lib.prepare(ws, x, base / x["id"] / "demo"), base / x["id"])
+                for x in attacks]
     results: list[RunResult] = []
     counted = 0  # embedding tokens already added to the counter
-    for root in roots:
+    for job_ws, root in jobs:
         per_run = int(os.getenv("OVERNIGHT_MAX_TOKENS", Limits.max_tokens))
         if meter and total:
             if meter.spent >= total:
@@ -106,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         limits = Limits(max_tokens=per_run,
                         max_tool_calls=int(os.getenv("OVERNIGHT_MAX_TOOL_CALLS", 60)),
                         max_seconds=float(os.getenv("OVERNIGHT_MAX_SECONDS", 900)))
-        res = run(ws, root, a.vault or root / "vault", llm, limits, a.today, ping, embedder)
+        res = run(job_ws, root, a.vault or root / "vault", llm, limits, a.today, ping, embedder)
         if meter:
             print(f"tokens: key total {meter.spent}" + (f"/{total}" if total else ""))
         print(f"run {res.run_id}: {res.status}")
@@ -122,5 +137,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.cmd == "eval":
         print("summary:", write_summary(results, ws, a.root / "eval" / stamp / "summary.md"))
+        return 0
+    if a.cmd == "attack-eval":
+        expected = json.loads((ws / "expected.json").read_text())
+        before = attack_lib.row_counts(ws / "warehouse.duckdb")
+        rows = [attack_lib.judge(x, r, job_ws, before, expected)
+                for x, r, (job_ws, _) in zip(attacks, results, jobs, strict=True)]
+        out = base / "summary.md"
+        out.write_text(attack_lib.summarize(rows, attacks), encoding="utf-8")
+        print(out.read_text(encoding="utf-8"), f"saved: {out}", sep="\n")
         return 0
     return 0 if results[0].status == "ok" else 1
