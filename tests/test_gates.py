@@ -54,3 +54,7 @@ def test_numbers_in_ignores_booleans() -> None:
 def test_list_length_counts_as_traceable() -> None:
     c = Claim(text="1 row", sources=["S2"], value=1)  # S2 rows == [[5]]
     assert "numbers_traceable" not in _failed(c, c)
+
+
+def test_thousands_separators_are_one_number() -> None:
+    assert {1000.0, 1500.0} <= numbers_in("never smaller than 1 000, and 1,500 at most")

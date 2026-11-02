@@ -21,7 +21,7 @@ def _run(ws: Path, llm: Any = None, limits: Limits = DEFAULT) -> RunResult:
 
 
 def _state(ws: Path) -> dict[str, str]:
-    hyps = json.loads((ws.parent / "state" / "hypotheses.json").read_text())
+    hyps = json.loads((ws.parent / "state" / "hypotheses.json").read_text(encoding="utf-8"))
     return {h["id"]: h["status"] for h in hyps}
 
 
@@ -31,22 +31,25 @@ def test_golden_run(ws: Path) -> None:
     for f in ("collect", "analyze", "synthesize", "critique", "finalize"):
         assert (res.run_dir / f"{f}.json").exists()
     assert _state(ws) == {"H1": "confirmed", "H2": "confirmed", "H3": "confirmed",
-                          "H4": "rejected", "H5": "open"}
-    assert res.report.read_text().startswith("---")
-    assert "overnight:begin" in (ws.parent / "vault/Overnight/Hypotheses.md").read_text()
+                          "H4": "rejected", "H5": "inconclusive", "H6": "inconclusive",
+                          "H7": "inconclusive", "H8": "inconclusive",
+                          "H9": "confirmed"}  # offline: no SQL -> inconclusive, trusts H9's SQL
+    assert res.report.read_text(encoding="utf-8").startswith("---")
+    hyps_note = ws.parent / "vault/Overnight/Hypotheses.md"
+    assert "overnight:begin" in hyps_note.read_text(encoding="utf-8")
 
 
 def test_two_runs_same_day_do_not_collide(ws: Path) -> None:
     a, b = _run(ws), _run(ws)
     assert a.run_id != b.run_id and a.report != b.report
-    runs = json.loads((ws.parent / "state" / "runs.json").read_text())
+    runs = json.loads((ws.parent / "state" / "runs.json").read_text(encoding="utf-8"))
     assert [r["run_id"] for r in runs] == [a.run_id, b.run_id]
 
 
 def test_preflight_failure_still_leaves_a_note(ws: Path) -> None:
     (ws / "warehouse.duckdb").unlink()
     res = _run(ws)
-    assert res.status == "failed" and "warehouse.duckdb" in res.report.read_text()
+    assert res.status == "failed" and "warehouse.duckdb" in res.report.read_text(encoding="utf-8")
 
 
 class FailingAnalyze(OfflinePolicy):
@@ -65,3 +68,16 @@ def test_failed_stage_gives_partial_and_keeps_memory(ws: Path) -> None:
 def test_budget_stops_the_run(ws: Path) -> None:
     res = _run(ws, limits=Limits(max_tool_calls=2))
     assert res.status == "failed" and "tool calls" in res.gates[0].detail
+
+
+MINUS = "\u2212"  # the character that broke it
+
+
+def test_non_ascii_model_output_is_saved(ws: Path) -> None:
+    """Regression: on Windows (cp1251) a minus sign in model output crashed writing
+    analyze.json. CI also runs the tests without a UTF-8 locale to catch this."""
+    f = ws / "hypotheses.json"
+    text = f.read_text(encoding="utf-8").replace("more than once", f"more than once {MINUS}")
+    f.write_text(text, encoding="utf-8")
+    res = _run(ws)
+    assert MINUS in (res.run_dir / "analyze.json").read_text(encoding="utf-8")

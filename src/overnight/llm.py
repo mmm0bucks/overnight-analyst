@@ -31,6 +31,7 @@ class LLMResponse:
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     tokens: int = 0
+    truncated: bool = False  # hit MAX_OUTPUT: the JSON is cut off, a plain retry repeats it
 
 
 class LLM(Protocol):
@@ -80,7 +81,8 @@ class HttpLLM:
                               json.loads(c["function"].get("arguments") or "{}"))
                      for c in msg.get("tool_calls") or []]
             return LLMResponse(msg.get("content") or "", calls,
-                               int((data.get("usage") or {}).get("total_tokens", 0)))
+                               int((data.get("usage") or {}).get("total_tokens", 0)),
+                               data["choices"][0].get("finish_reason") == "length")
         raise AssertionError("unreachable")
 
 

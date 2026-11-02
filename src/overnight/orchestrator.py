@@ -46,7 +46,8 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
 
     state_file = root / "state" / "hypotheses.json"
     seed = state_file if state_file.exists() else workspace / "hypotheses.json"
-    hypotheses: list[dict[str, Any]] = json.loads(seed.read_text()) if seed.exists() else []
+    hypotheses: list[dict[str, Any]] = (json.loads(seed.read_text(encoding="utf-8"))
+                                        if seed.exists() else [])
     for h in hypotheses:
         h.setdefault("status", "open")
     budget, box = Budget(limits), Toolbox(workspace, today, limits.max_sql_per_stage,
@@ -81,9 +82,10 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
             if isinstance(e, BudgetExceeded):
                 break
             continue
-        (run_dir / f"{stage.name}.json").write_text(arts[stage.name].model_dump_json(indent=1))
+        (run_dir / f"{stage.name}.json").write_text(arts[stage.name].model_dump_json(indent=1),
+                                                 encoding="utf-8")
 
-    gates = run_gates(arts, errors, box.sources)
+    gates = run_gates(arts, errors, box.sources, [h["id"] for h in open_hyps])
     result = status(gates, arts)
     analysis = arts.get("analyze")
     if result == "ok" and isinstance(analysis, AnalyzeOut):  # only trusted runs update memory
@@ -94,7 +96,8 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
     usage = budget.usage()
     (run_dir / "finalize.json").write_text(json.dumps(
         {"status": result, "gates": [g.__dict__ for g in gates], "usage": usage,
-         "sources": [s.__dict__ for s in box.sources.values()]}, indent=1, default=str))
+         "sources": [s.__dict__ for s in box.sources.values()]}, indent=1, default=str),
+        encoding="utf-8")
     synth = arts.get("synthesize")
     report = publish(root, vault, run_dir, run_id, today.isoformat(), result,
                      synth if isinstance(synth, SynthesizeOut) else None,

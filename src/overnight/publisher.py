@@ -76,7 +76,7 @@ def publish(root: Path, vault: Path, run_dir: Path, run_id: str, today: str, sta
     state = root / "state"
     atomic_write(state / "hypotheses.json", json.dumps(hypotheses, indent=1), backup)
     runs_file = state / "runs.json"
-    runs = json.loads(runs_file.read_text()) if runs_file.exists() else []
+    runs = json.loads(runs_file.read_text(encoding="utf-8")) if runs_file.exists() else []
     runs.append({"run_id": run_id, "date": today, "status": status, "usage": usage})
     atomic_write(runs_file, json.dumps(runs, indent=1), backup)
 

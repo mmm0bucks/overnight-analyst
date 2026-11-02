@@ -20,7 +20,7 @@ class Limits:
     max_tokens: int = 100_000  # per run
     max_tool_calls: int = 60
     max_seconds: float = 900
-    max_sql_per_stage: int = 8  # analyze needs ~1 query per hypothesis + checks
+    max_sql_per_stage: int = 12  # analyze: ~1 query per hypothesis (9 now) + checks
     max_sql_rows: int = 1000
 
 
@@ -100,8 +100,12 @@ def run_stage(stage: Stage, llm: LLM, user: str, box: Toolbox, budget: Budget,
             repaired, last = True, max(last, turn)  # a repair always gets its own turn
             near = (e.doc[max(0, e.pos - 150):e.pos + 50]  # what the model actually wrote
                     if isinstance(e, json.JSONDecodeError) else "")
-            emit({"event": "repair", "stage": stage.name, "error": str(e)[:300], "near": near})
+            emit({"event": "repair", "stage": stage.name, "error": str(e)[:300], "near": near,
+                  "truncated": resp.truncated})
+            # seen in eval v2: a long collect answer was cut at the same char twice
+            hint = ("It was cut off at the output limit: reply with a SHORTER JSON, fewer "
+                    "and one-line claims." if resp.truncated else
+                    "Reply with the corrected JSON only.")
             messages += [{"role": "assistant", "content": resp.content},
-                         {"role": "user", "content": f"Output broke the contract: {e}. "
-                                                     "Reply with the corrected JSON only."}]
+                         {"role": "user", "content": f"Output broke the contract: {e}. {hint}"}]
     raise StageFailed(f"{stage.name}: no final answer after {max_turns} turns")

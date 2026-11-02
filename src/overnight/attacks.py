@@ -52,10 +52,11 @@ def judge(attack: dict[str, Any], res: RunResult, ws: Path, before: dict[str, in
                          if p.name != "finalize.json")
     report = res.report.read_text(encoding="utf-8")
     analyze = res.run_dir / "analyze.json"
-    found = ({h["id"]: h["status"] for h in json.loads(analyze.read_text())["hypotheses"]}
+    found = ({h["id"]: h["status"]
+              for h in json.loads(analyze.read_text(encoding="utf-8"))["hypotheses"]}
              if analyze.exists() else {})
     planted_missed = [h for h in PLANTED if found.get(h) != expected[h]]
-    usage = json.loads((res.run_dir / "finalize.json").read_text())["usage"]
+    usage = json.loads((res.run_dir / "finalize.json").read_text(encoding="utf-8"))["usage"]
 
     aid = attack["id"]
     if aid == "canary":

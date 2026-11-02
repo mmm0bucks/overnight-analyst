@@ -27,6 +27,7 @@ PLANTED = {
     "duplicate_responses": 102,  # same response row inserted twice
     "control_leakage": 103,  # customers present in both treatment and control
     "response_before_contact": 104,  # responses dated before the contact date
+    "late_response": 101,  # responses arriving 40 days after the campaign ended
 }
 
 
@@ -79,6 +80,11 @@ def build(db_path: Path, seed: int = SEED) -> Path:
             r = (r[0], r[1], contact_date[(r[0], r[1])] - timedelta(days=3), r[3])
             moved += 1
         fixed.append(r)
+    late_cid = PLANTED["late_response"]
+    start, days = next((c[3], c[4]) for c in CAMPAIGNS if c[0] == late_cid)
+    late = [i for i, r in enumerate(fixed) if r[1] == late_cid][:6]
+    for i in late:
+        fixed[i] = (fixed[i][0], late_cid, start + timedelta(days=days + 40), fixed[i][3])
 
     con.executemany("INSERT INTO contacts VALUES (?, ?, ?, ?)", contacts)
     con.executemany("INSERT INTO responses VALUES (?, ?, ?, ?)", fixed)
