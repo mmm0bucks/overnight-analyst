@@ -48,6 +48,11 @@ def test_one_repair_for_bad_json(ws: Path) -> None:
     assert out.verdict == "accept" and [e["event"] for e in events].count("repair") == 1
 
 
+def test_cut_off_answer_is_asked_to_be_shorter(ws: Path) -> None:
+    out, llm, *_ = _run(ws, LLMResponse(content='{"verdict": "acc', truncated=True), ACCEPT)
+    assert out.verdict == "accept" and "SHORTER" in llm.seen[1][-1]["content"]
+
+
 def test_second_bad_json_fails_stage(ws: Path) -> None:
     with pytest.raises(StageFailed):
         _run(ws, LLMResponse(content="nope"), LLMResponse(content="still nope"))

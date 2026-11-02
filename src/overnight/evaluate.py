@@ -15,27 +15,36 @@ def summarize(results: list[RunResult], expected: dict[str, str]) -> str:
     ids = sorted(expected)
     rows, correct = [], dict.fromkeys(ids, 0)
     for r in results:
-        usage = json.loads((r.run_dir / "finalize.json").read_text())["usage"]
+        usage = json.loads((r.run_dir / "finalize.json").read_text(encoding="utf-8"))["usage"]
         analyze = r.run_dir / "analyze.json"
         got = {h["id"]: h["status"] for h in
-               (json.loads(analyze.read_text())["hypotheses"] if analyze.exists() else [])}
+               (json.loads(analyze.read_text(encoding="utf-8"))["hypotheses"]
+                if analyze.exists() else [])}
         for h in ids:
             correct[h] += got.get(h) == expected[h]
         marks = [("✅ " if got.get(h) == expected[h] else "❌ ") + got.get(h, "—") for h in ids]
         rows.append(f"| {r.run_id} | {r.status} | {usage['tokens']} | {usage['seconds']} | "
                     + " | ".join(marks) + " |")
-    n = len(results)
+    n, k = len(results), len(ids)
     total = sum(correct.values())
+    # pass^k: right in EVERY run, i.e. reliable rather than lucky once
+    always = sum(correct[h] == n for h in ids)
+    # a constant answer must score badly, or the hypothesis set is too easy to game
+    base = ", ".join(f"always {s} {sum(v == s for v in expected.values())}/{k}"
+                     for s in ("confirmed", "rejected", "inconclusive"))
     head = "| run | status | tokens | seconds | " + " | ".join(ids) + " |"
     return "\n".join([
-        f"# Eval: {n} run(s), {total}/{n * len(ids)} hypothesis checks correct", "",
+        f"# Eval: {n} run(s), {total}/{n * k} hypothesis checks correct", "",
+        f"- pass@1 (share of correct checks): {total / max(n * k, 1):.2f}",
+        f"- pass^{n} (hypotheses right in every run): {always}/{k}",
+        f"- baselines with a constant answer: {base}", "",
         head, "|" + "---|" * (4 + len(ids)), *rows, "",
         "| hypothesis | expected | correct |", "|---|---|---|",
         *[f"| {h} | {expected[h]} | {correct[h]}/{n} |" for h in ids], ""])
 
 
 def write_summary(results: list[RunResult], workspace: Path, out: Path) -> Path:
-    expected = json.loads((workspace / "expected.json").read_text())
+    expected = json.loads((workspace / "expected.json").read_text(encoding="utf-8"))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(summarize(results, expected), encoding="utf-8")
     return out

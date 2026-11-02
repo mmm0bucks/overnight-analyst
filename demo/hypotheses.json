@@ -3,5 +3,9 @@
  {"id": "H2", "statement": "Some customers are in both treatment and control of the same campaign", "suggested_sql": "SELECT count(*) FROM (SELECT customer_id, campaign_id FROM contacts GROUP BY 1, 2 HAVING count(DISTINCT grp) > 1)"},
  {"id": "H3", "statement": "Some responses are dated before the customer was contacted", "suggested_sql": "SELECT count(*) FROM responses r JOIN contacts c USING (customer_id, campaign_id) WHERE r.response_date < c.contact_date"},
  {"id": "H4", "statement": "Some campaigns end before they start", "suggested_sql": "SELECT count(*) FROM campaigns WHERE end_date < start_date"},
- {"id": "H5", "statement": "Treatment beats control on response rate in every campaign"}
+ {"id": "H5", "statement": "Treatment beats control on response rate in every campaign"},
+ {"id": "H6", "statement": "Some responses in campaign 101 are recorded more than once"},
+ {"id": "H7", "statement": "Some responses arrived more than 30 days after their campaign ended"},
+ {"id": "H8", "statement": "Win-back October reduced churn among contacted customers"},
+ {"id": "H9", "statement": "Some customers were contacted twice within the same group of one campaign", "suggested_sql": "SELECT count(*) FROM (SELECT customer_id, campaign_id FROM contacts GROUP BY 1, 2 HAVING count(*) > 1)"}
 ]

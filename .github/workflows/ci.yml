@@ -21,6 +21,8 @@ jobs:
         run: uv run mypy
       - name: Tests
         run: uv run pytest -q
+      - name: Tests without a UTF-8 locale (like Windows cp1251)
+        run: LC_ALL=C PYTHONUTF8=0 uv run pytest -q
       - name: Smoke run (offline, no API key needed)
         run: |
           uv run overnight init-demo

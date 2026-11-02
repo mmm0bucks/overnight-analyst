@@ -39,3 +39,20 @@ def test_planted_defects_are_exactly_where_we_say(tmp_path: Path) -> None:
                                "USING (customer_id, campaign_id) "
                                "WHERE r.response_date < c.contact_date") \
         == {p["response_before_contact"]}
+
+
+def test_hard_hypotheses_ground_truth(tmp_path: Path) -> None:
+    """expected.json for the hard cases is checked against the data, not trusted."""
+    db = demo_data.build(tmp_path / "w.duckdb")
+    dup = ("SELECT customer_id, campaign_id, response_date, revenue FROM responses "
+           "GROUP BY ALL HAVING count(*) > 1")
+    assert 101 not in _campaigns_with(db, dup)  # H6 rejected: duplicates live in 102 only
+    late = ("SELECT r.campaign_id FROM responses r JOIN campaigns c USING (campaign_id) "
+            "WHERE r.response_date > c.end_date + INTERVAL 30 DAY")
+    assert _campaigns_with(db, late) == {demo_data.PLANTED["late_response"]}  # H7 confirmed
+    same_grp = ("SELECT customer_id, campaign_id FROM contacts GROUP BY customer_id, "
+                "campaign_id, grp HAVING count(*) > 1")
+    assert _campaigns_with(db, same_grp) == set()  # H9 rejected...
+    naive = ("SELECT customer_id, campaign_id FROM contacts GROUP BY 1, 2 "
+             "HAVING count(*) > 1")
+    assert _campaigns_with(db, naive) == {103}  # ...though its suggested_sql finds rows

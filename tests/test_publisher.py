@@ -24,5 +24,6 @@ def test_atomic_write_backs_up_previous(tmp_path: Path) -> None:
     f = tmp_path / "n.md"
     atomic_write(f, "v1")
     atomic_write(f, "v2", backup_dir=tmp_path / "bak")
-    assert f.read_text() == "v2" and (tmp_path / "bak" / "n.md").read_text() == "v1"
+    assert f.read_text(encoding="utf-8") == "v2"
+    assert (tmp_path / "bak" / "n.md").read_text(encoding="utf-8") == "v1"
     assert not list(tmp_path.glob("*.tmp"))

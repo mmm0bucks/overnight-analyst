@@ -37,12 +37,21 @@ uv run --env-file .env overnight run --llm http --vault "/путь/к/вашем
 ### Оценка на нескольких прогонах
 
 ```bash
-uv run --env-file .env overnight eval --runs 3 --llm http --today 2026-10-27
+uv run --env-file .env overnight eval --runs 3 --llm http
+uv run overnight eval --llm null --runs 1   # проверка самой оценки: пустой агент = 0
 ```
 
 Каждый прогон идёт в своей папке `eval/<время>/<n>`, чтобы не видеть гипотезы, закрытые
-прошлым прогоном. Итог сверяется с `demo/expected.json` и пишется в
-`eval/<время>/summary.md`: таблица прогонов и точность по каждой гипотезе.
+прошлым прогоном, и на фиксированной дате демо (2026-10-31), чтобы прогоны разных дней можно
+было сравнивать. Итог сверяется с `demo/expected.json` и пишется в
+`eval/<время>/summary.md`:
+
+* pass@1 — доля верных проверок гипотез;
+* pass^k — сколько гипотез верны во **всех** k прогонах (стабильность, а не удача);
+* базовые линии: сколько набрал бы агент, который всегда отвечает одно и то же. Ответ
+  «всегда подтверждено» даёт 5 из 9, поэтому планка — заметно выше 5 из 9;
+* пустой агент (`--llm null`) обязан получить 0. Он нашёл дыру: пустой ответ проходил все
+  проверки, теперь гейт `every_hypothesis_answered` её закрывает.
 
 ### Поиск по вики (RAG)
 
@@ -159,8 +168,9 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 ### Оценка
 
 Демо-база генерируется с фиксированным seed и **заложенными ошибками** (дубли откликов,
-клиенты сразу в тесте и контроле, отклики раньше контакта), плюс одна ложная гипотеза.
-Это бесплатная «правда», с которой можно сверять агента:
+клиенты сразу в тесте и контроле, отклики раньше контакта, поздние отклики), плюс ложные и
+непроверяемые гипотезы. Это бесплатная «правда», с которой можно сверять агента. H6–H9 —
+трудные случаи: их правду проверяет тест прямо по данным (`test_demo_data.py`).
 
 | Гипотеза | Правда | Офлайн-режим | LLM (`--llm http`) |
 |---|---|---|---|
@@ -168,7 +178,11 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 | H2 пересечение теста и контроля | да, 25 клиентов | подтверждена | подтверждена, 25 |
 | H3 отклик раньше контакта | да, 12 строк | подтверждена | подтверждена, 12 |
 | H4 кампания кончается раньше старта | нет | отклонена | отклонена, 0 |
-| H5 тест лучше контроля во всех кампаниях | да (4 из 4) | пропущена (нет готового SQL) | подтверждена, SQL написала сама |
+| H5 тест лучше контроля во всех кампаниях | да (4 из 4) | inconclusive (нет готового SQL) | подтверждена, SQL написала сама |
+| H6 дубли в кампании 101 (ловушка: дубли есть, но в 102) | нет | inconclusive | отклонена 3 из 3 |
+| H7 отклики через 30+ дней после конца кампании (без готового SQL) | да, 6 строк | inconclusive | подтверждена 3 из 3 |
+| H8 Win-back снизил отток (данных об оттоке нет) | нельзя проверить | inconclusive | inconclusive 3 из 3 |
+| H9 повторный контакт в той же группе (подсказанный SQL неверен) | нет | подтверждена (верит SQL) | отклонена 2 из 3 |
 
 Колонка LLM — `qwen3.8-27b-noreason`. Оценка `overnight eval --runs 3`, каждый прогон в
 чистой папке:
@@ -177,6 +191,15 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 |---|---|---|---|---|
 | 2026-10-30, до исправления | 0 из 15 | 3× `partial` | 55–57 тыс. | 187–297 с |
 | 2026-10-30, после | **15 из 15** | 3× `ok` | 49–65 тыс. | 218–384 с |
+| 2026-11-03, 9 гипотез (оценка v2) | **26 из 27** | 2× `ok`, 1× `partial` | 66–70 тыс. | 37–57 с |
+
+Оценка v2: доля верных проверок 0,96; верны во всех трёх прогонах 8 из 9 гипотез (pass^3).
+Ответ «всегда подтверждено» набрал бы 5 из 9, пустой агент — 0. Единственная ошибка: в одном
+прогоне модель поверила неверному подсказанному SQL в H9. `partial` — проверка чисел:
+модель вывела «0 дублей в 101» из отсутствующей строки, а не из запроса, который вернул 0.
+Два предыдущих прогона v2 нашли три ошибки самого агента; они исправлены до этого замера:
+запись файлов в cp1251 на Windows, «1 000» в вики не считалось одним числом, ответ этапа
+обрезался на лимите вывода.
 
 «До» analyze каждый раз падал одинаково: исправление битого JSON выпадало на последний ход и
 терялось. «После» в одном прогоне модель снова прислала испорченный JSON
@@ -247,12 +270,20 @@ uv run --env-file .env overnight run --llm http --vault "/path/to/your/vault"
 ### Evaluation over several runs
 
 ```bash
-uv run --env-file .env overnight eval --runs 3 --llm http --today 2026-10-27
+uv run --env-file .env overnight eval --runs 3 --llm http
+uv run overnight eval --llm null --runs 1   # checks the eval itself: an empty agent scores 0
 ```
 
 Every run gets its own folder `eval/<time>/<n>`, so it never sees hypotheses closed by an
-earlier run. Results are checked against `demo/expected.json` and written to
-`eval/<time>/summary.md`: one row per run plus accuracy per hypothesis.
+earlier run, and a fixed demo date (2026-10-31), so runs from different days compare.
+Results are checked against `demo/expected.json` and written to `eval/<time>/summary.md`:
+
+* pass@1 — share of correct hypothesis checks;
+* pass^k — hypotheses right in **every** one of k runs (reliable, not lucky once);
+* baselines: what an agent giving one constant answer would score. "Always confirmed"
+  gets 5/9, so the bar is well above 5/9;
+* the empty agent (`--llm null`) must score 0. It found a hole: an empty answer passed
+  every gate; the `every_hypothesis_answered` gate now closes it.
 
 ### Wiki search (RAG)
 
@@ -367,8 +398,9 @@ Details: [docs/architecture.md](docs/architecture.md) · decisions: [docs/decisi
 ### Evaluation
 
 The demo warehouse is generated from a fixed seed with **planted defects** (duplicate
-responses, treatment/control leakage, responses before contact) plus one false hypothesis.
-That gives free ground truth:
+responses, treatment/control leakage, responses before contact, late responses) plus false
+and untestable hypotheses. That gives free ground truth. H6–H9 are the hard cases; a test
+checks their truth against the data itself (`test_demo_data.py`).
 
 | Hypothesis | Truth | Offline policy | LLM (`--llm http`) |
 |---|---|---|---|
@@ -376,7 +408,11 @@ That gives free ground truth:
 | H2 control leakage | yes, 25 customers | confirmed | confirmed, 25 |
 | H3 response before contact | yes, 12 rows | confirmed | confirmed, 12 |
 | H4 campaign ends before start | no | rejected | rejected, 0 |
-| H5 treatment beats control everywhere | yes (4/4 campaigns) | skipped (no SQL given) | confirmed, wrote its own SQL |
+| H5 treatment beats control everywhere | yes (4/4 campaigns) | inconclusive (no SQL given) | confirmed, wrote its own SQL |
+| H6 duplicates in campaign 101 (trap: they are in 102) | no | inconclusive | rejected 3/3 |
+| H7 responses 30+ days after the campaign ended (no SQL given) | yes, 6 rows | inconclusive | confirmed 3/3 |
+| H8 Win-back reduced churn (no churn data) | untestable | inconclusive | inconclusive 3/3 |
+| H9 contacted twice in the same group (the suggested SQL is wrong) | no | confirmed (trusts the SQL) | rejected 2/3 |
 
 LLM column — `qwen3.8-27b-noreason`. Evaluated with `overnight eval --runs 3`, every run in
 a fresh folder:
@@ -385,6 +421,15 @@ a fresh folder:
 |---|---|---|---|---|
 | 2026-10-30, before the fix | 0/15 | 3× `partial` | 55–57k | 187–297 s |
 | 2026-10-30, after | **15/15** | 3× `ok` | 49–65k | 218–384 s |
+| 2026-11-03, 9 hypotheses (eval v2) | **26/27** | 2× `ok`, 1× `partial` | 66–70k | 37–57 s |
+
+Eval v2: pass@1 0.96; 8 of 9 hypotheses right in all three runs (pass^3). Answering "always
+confirmed" would score 5/9, the empty agent scores 0. The one miss: in one run the model
+trusted the wrong suggested SQL in H9. The `partial` is the number gate: the model derived
+"0 duplicates in 101" from a missing row instead of a query that returns 0. The two earlier
+v2 runs found three bugs in the agent itself, fixed before this measurement: files written
+as cp1251 on Windows, "1 000" in the wiki not read as one number, a stage answer cut off at
+the output limit.
 
 Before, analyze failed the same way every time: the repair of a broken JSON answer landed on
 the last turn and was lost. After, one run again got corrupted JSON from the model

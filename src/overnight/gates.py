@@ -40,7 +40,9 @@ def numbers_in(obj: Any) -> set[float]:
     if isinstance(obj, (int, float)):
         return {float(obj)}
     if isinstance(obj, str):
-        return {float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", obj)}
+        # "1 000" and "1,000" are one number too: the wiki writes thousands that way
+        joined = re.sub(r"(?<=\d)[ ,](?=\d{3}(?!\d))", "", obj)
+        return {float(x) for s in (obj, joined) for x in re.findall(r"-?\d+(?:\.\d+)?", s)}
     if isinstance(obj, dict):
         obj = list(obj.values())
     if isinstance(obj, list):
@@ -50,7 +52,7 @@ def numbers_in(obj: Any) -> set[float]:
 
 
 def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
-              sources: dict[str, Source]) -> list[Gate]:
+              sources: dict[str, Source], asked: list[str] | None = None) -> list[Gate]:
     by_stage = {name: claims(a) for name, a in arts.items()}
     every = [c for cs in by_stage.values() for c in cs]
 
@@ -71,6 +73,10 @@ def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
     links = [t for t in texts if EXTERNAL.search(t)]
     crit = arts.get("critique")
     verdict = crit.verdict if isinstance(crit, CritiqueOut) else "missing"
+    analysis = arts.get("analyze")
+    answered = {h.id for h in analysis.hypotheses} if isinstance(analysis, AnalyzeOut) else set()
+    # an empty answer passes every other gate: found by running the eval with a null agent
+    skipped = [h for h in asked or [] if h not in answered]
     return [
         Gate("all_stages_ok", not stage_errors, "; ".join(f"{k}: {v}" for k, v in
                                                           stage_errors.items())),
@@ -80,6 +86,7 @@ def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
         Gate("synthesis_adds_no_sources", not new, ", ".join(new)),
         Gate("critique_not_rejected", verdict in ("accept", "revise"), verdict),
         Gate("no_external_links", not links, "; ".join(links[:3])),
+        Gate("every_hypothesis_answered", not skipped, ", ".join(skipped)),
     ]
 
 

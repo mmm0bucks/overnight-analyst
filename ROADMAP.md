@@ -10,7 +10,8 @@ Each item is planned as a separate pull request.
 - [ ] Regression check in CI on recorded model answers
 - [ ] GitHub Issues adapter for the tracker (read-only)
 - [x] Prompt-injection red-team set: 5 attacks, attempt vs success, spotlighting, link gate
-- [ ] LLM-as-judge with calibration (Cohen's kappa) and harder negative cases
+- [x] Eval v2: hard and negative hypotheses, pass^k, constant-answer baselines, null-agent check
+- [ ] LLM-as-judge with calibration (Cohen's kappa)
 - [ ] FastAPI service + ADR "why not LangGraph"
 - [ ] MCP server for the read-only tools
 - [ ] OpenTelemetry GenAI trace export (view in Phoenix)

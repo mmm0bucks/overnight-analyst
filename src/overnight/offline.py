@@ -22,6 +22,19 @@ def _final(obj: dict[str, Any]) -> LLMResponse:
     return LLMResponse(content=json.dumps(obj))
 
 
+class NullAgent:
+    """Does nothing and answers with empty contracts: a grader check. It must score 0,
+    otherwise the eval rewards something other than the work."""
+
+    def complete(self, messages: list[dict[str, Any]],
+                 tools: list[dict[str, Any]]) -> LLMResponse:
+        stage = re.search(r"STAGE: (\w+)", messages[0]["content"])
+        empty: dict[str, dict[str, Any]] = {
+            "collect": {"facts": []}, "analyze": {"hypotheses": []},
+            "synthesize": {"headline": "", "sections": []}, "critique": {"verdict": "accept"}}
+        return _final(empty[stage.group(1) if stage else ""])
+
+
 class OfflinePolicy:
     def complete(self, messages: list[dict[str, Any]],
                  tools: list[dict[str, Any]]) -> LLMResponse:
@@ -61,6 +74,8 @@ class OfflinePolicy:
                         "confirmed" if n > 0 else "rejected",
                         "evidence": [] if n is None else
                         [_claim(f"{h['id']}: {n} offending rows", r["source"], n)]})
+        out += [{"id": h["id"], "statement": h["statement"], "status": "inconclusive",
+                 "evidence": []} for h in inputs["hypotheses"] if not h.get("suggested_sql")]
         return _final({"hypotheses": out})
 
     def synthesize(self, inputs: dict[str, Any], results: list[dict[str, Any]]) -> LLMResponse:
