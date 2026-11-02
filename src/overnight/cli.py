@@ -1,5 +1,6 @@
 """`overnight init-demo` builds the synthetic warehouse; `overnight run` runs one night;
-`overnight eval --runs N` runs N fresh nights and scores them against demo/expected.json."""
+`overnight eval --runs N` runs N fresh nights and scores them against demo/expected.json;
+`overnight judge-eval` calibrates the LLM judge on report variants with known labels."""
 
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from typing import Any
 
 from overnight import attacks as attack_lib
 from overnight import demo_data
+from overnight import judge as judge_lib
 from overnight.agent import Limits
 from overnight.evaluate import rag_summary, write_summary
 from overnight.llm import LLM, HttpLLM, LLMResponse
@@ -49,7 +51,8 @@ def add_spend(tokens: int, file: Path = Path("state") / "spend.json") -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="overnight")
-    p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval", "attack-eval"])
+    p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval", "attack-eval",
+                                    "judge-eval"])
     p.add_argument("--root", type=Path, default=Path.cwd(), help="where runs/ and state/ live")
     p.add_argument("--workspace", type=Path, help="inputs (default: <root>/demo)")
     p.add_argument("--vault", type=Path, help="Obsidian vault (default: <root>/vault)")
@@ -82,10 +85,33 @@ def main(argv: list[str] | None = None) -> int:
         add_spend(embedder.tokens)
         return 0
 
+    total = int(os.getenv("OVERNIGHT_TOTAL_TOKENS", 0))  # 0 = no lifetime cap
+    if a.cmd == "judge-eval":
+        # the judge may have its own key (e.g. a free model): its spend is counted apart
+        # and the paid key's lifetime cap does not apply to it
+        own_key = os.getenv("OVERNIGHT_JUDGE_API_KEY")
+        url = os.getenv("OVERNIGHT_JUDGE_BASE_URL") or os.getenv("OVERNIGHT_LLM_BASE_URL")
+        key = own_key or os.getenv("OVERNIGHT_LLM_API_KEY")
+        model = os.getenv("OVERNIGHT_JUDGE_MODEL") or os.getenv("OVERNIGHT_LLM_MODEL")
+        if not (url and key and model):
+            p.error("set OVERNIGHT_LLM_BASE_URL, _API_KEY and OVERNIGHT_JUDGE_MODEL")
+        if not os.getenv("OVERNIGHT_JUDGE_MODEL"):
+            print("note: the judge is the report's own model; set OVERNIGHT_JUDGE_MODEL "
+                  "to another one (models favour their own text)")
+        spend = Path("state") / ("spend-judge.json" if own_key else "spend.json")
+        judge_llm = Metered(HttpLLM(url, key, model), spend)
+        if total and not own_key and judge_llm.spent >= total:
+            p.error(f"token budget of this key is spent: {judge_llm.spent}/{total}")
+        text, _ = judge_lib.calibrate(judge_llm, ws / "judge", a.runs, model)
+        out = a.root / "eval" / f"judge-{datetime.now():%Y%m%d-%H%M%S}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(text, f"saved: {out}", sep="\n")
+        return 0
+
     # Lifetime cap for a prepaid key, shared by all --root dirs: ./state/spend.json in the
     # directory you run from (where .env lives).
     # ponytail: checked between calls, so one call (<= ~50k tokens) can overshoot the cap.
-    total = int(os.getenv("OVERNIGHT_TOTAL_TOKENS", 0))  # 0 = no lifetime cap
     llm: LLM = NullAgent() if a.llm == "null" else OfflinePolicy()
     meter = None
     ping = None

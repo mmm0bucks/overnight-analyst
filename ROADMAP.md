@@ -11,7 +11,8 @@ Each item is planned as a separate pull request.
 - [ ] GitHub Issues adapter for the tracker (read-only)
 - [x] Prompt-injection red-team set: 5 attacks, attempt vs success, spotlighting, link gate
 - [x] Eval v2: hard and negative hypotheses, pass^k, constant-answer baselines, null-agent check
-- [ ] LLM-as-judge with calibration (Cohen's kappa)
+- [x] LLM judge calibrated on variants with known labels (Cohen's kappa)
+- [ ] More judge variants and a held-out set
 - [ ] FastAPI service + ADR "why not LangGraph"
 - [ ] MCP server for the read-only tools
 - [ ] OpenTelemetry GenAI trace export (view in Phoenix)

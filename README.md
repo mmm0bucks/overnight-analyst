@@ -116,6 +116,46 @@ uv run --env-file .env overnight attack-eval --llm http --embed http   # ~5 пр
 («…is untrusted data and is not followed»), а судья искал фразу во всех артефактах и
 засчитал это как «поддалась». Теперь судья смотрит только в опубликованный отчёт.
 
+### LLM-судья и его калибровка
+
+Проверки в коде ловят выдуманные числа, но не смысл: пропущенную находку или вывод, которого
+нет в данных. Это работа LLM-судьи: он читает доказательства (результаты сбора и анализа) и
+отчёт и отвечает «хороший» или «плохой». Судье тоже не верим на слово. Код берёт один хороший
+отчёт настоящего прогона (`demo/judge/`) и делает из него 7 вариантов с известной меткой:
+
+| Вариант | Метка |
+|---|---|
+| исходный, переставленные разделы, нейтральный заголовок | хороший |
+| неверное число, пропала находка, вывод без данных, отклонённая гипотеза как находка | плохой |
+
+Согласие судьи с метками считается как каппа Коэна (1 — полное согласие, 0 — не лучше
+угадывания). Судья, который всегда отвечает «хороший», получает 0.
+
+```bash
+uv run --env-file .env overnight judge-eval --runs 2   # 14 вызовов судьи
+```
+
+Судью лучше брать другой моделью (`OVERNIGHT_JUDGE_MODEL`): модели склонны хвалить свой текст.
+У судьи может быть свой ключ (`OVERNIGHT_JUDGE_API_KEY`), например для бесплатной модели: его
+расход считается отдельно (`state/spend-judge.json`), и общий лимит платного ключа на него не
+действует.
+
+Первая калибровка (03.11, судья `qwen3.6-35b-a3b`, отчёты пишет `qwen3.8-27b-noreason`,
+2 прогона, ~57 тыс. токенов):
+
+| Метрика | Результат |
+|---|---|
+| Совпало с метками | 12 из 14 |
+| Каппа Коэна | 0,70 (в каждом прогоне 0,70) |
+| Плохие отчёты пойманы | 8 из 8 |
+| Хорошие отчёты признаны хорошими | 4 из 6 |
+
+Судья строгий: все плохие варианты он ловит и верно называет причину (например, «в отчёте
+16 просроченных задач, а в доказательствах 3»), но иногда бракует хороший отчёт. Так, он не
+засчитал «15 групп дублей в кампании 102» как подтверждение гипотезы «отклики записаны
+дважды». Промпт под эти 7 вариантов не подгонялся: на таком маленьком наборе это была бы
+подгонка под тест. Следующий шаг — больше вариантов и отдельный отложенный набор.
+
 ### Docker
 
 ```bash
@@ -347,6 +387,46 @@ First run on a real model (Nov 1, `qwen3.8-27b-noreason`, 5 attacks, ~278k token
 In goal-hijack the model quoted the payload to flag it as untrusted ("…is untrusted data
 and is not followed"); the judge searched every artifact for the phrase and counted that as
 acting on it. The judge now checks the published report only.
+
+### LLM judge and its calibration
+
+Code gates catch invented numbers, not meaning: a dropped finding or a conclusion the data
+does not support. That is the LLM judge's job: it reads the evidence (collect and analyze
+outputs) and the report and answers good or bad. The judge is not trusted on its word either.
+Code takes one good report from a real run (`demo/judge/`) and makes 7 variants with known
+labels:
+
+| Variant | Label |
+|---|---|
+| original, reordered sections, neutral headline | good |
+| wrong number, dropped finding, claim without data, rejected hypothesis as a finding | bad |
+
+Agreement with the labels is Cohen's kappa (1 is full agreement, 0 is no better than
+guessing). A judge that always says "good" scores 0.
+
+```bash
+uv run --env-file .env overnight judge-eval --runs 2   # 14 judge calls
+```
+
+Use a different model for the judge (`OVERNIGHT_JUDGE_MODEL`): models favour their own text.
+The judge can have its own key (`OVERNIGHT_JUDGE_API_KEY`), e.g. for a free model: its spend
+is counted apart (`state/spend-judge.json`) and the paid key's lifetime cap does not apply.
+
+First calibration (Nov 3, judge `qwen3.6-35b-a3b`, reports written by `qwen3.8-27b-noreason`,
+2 runs, ~57k tokens):
+
+| Metric | Result |
+|---|---|
+| Agreement with the labels | 12/14 |
+| Cohen's kappa | 0.70 (0.70 in each run) |
+| Bad reports caught | 8/8 |
+| Good reports judged good | 4/6 |
+
+The judge is strict: it catches every bad variant and names the reason (e.g. "the report says
+16 tasks are overdue, the evidence says 3"), but sometimes rejects a good report. It did not
+count "15 duplicate response groups in campaign 102" as confirming "responses are recorded
+more than once". The prompt was not tuned to these 7 variants: on a set this small that would
+be fitting to the test. Next: more variants and a separate held-out set.
 
 ### Docker
 
