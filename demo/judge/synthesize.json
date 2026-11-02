@@ -1,0 +1,175 @@
+{
+ "headline": "Morning Report: 3 Overdue Tasks and Data Quality Issues in Campaign 102",
+ "sections": [
+  {
+   "title": "Task Status",
+   "bullets": [
+    {
+     "text": "3 tasks are overdue as of 2026-10-31.",
+     "sources": [
+      "S1"
+     ],
+     "value": 3.0
+    },
+    {
+     "text": "Overdue T-1 'Uplift report for Autumn data bundle' (campaign 101) is in_progress, due 2026-10-24.",
+     "sources": [
+      "S1"
+     ],
+     "value": null
+    },
+    {
+     "text": "Overdue T-2 'Validate response attribution for Roaming pass promo' (campaign 102) is open, due 2026-10-30.",
+     "sources": [
+      "S1"
+     ],
+     "value": null
+    },
+    {
+     "text": "Overdue T-3 'Control group audit for Family plan upsell' (campaign 103) is open, due 2026-10-20.",
+     "sources": [
+      "S1"
+     ],
+     "value": null
+    },
+    {
+     "text": "Open T-4 'Win-back October: first results' (campaign 104) is due 2026-11-05, not overdue.",
+     "sources": [
+      "S1"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "title": "Data Quality & Integrity",
+   "bullets": [
+    {
+     "text": "Campaign 102 has 15 duplicate response groups on (customer, campaign, date, revenue).",
+     "sources": [
+      "S7"
+     ],
+     "value": 15.0
+    },
+    {
+     "text": "Campaign 102 has 94 response rows but only 79 distinct customers.",
+     "sources": [
+      "S5"
+     ],
+     "value": 79.0
+    },
+    {
+     "text": "12 responses are dated before their contact date.",
+     "sources": [
+      "S9"
+     ],
+     "value": 12.0
+    },
+    {
+     "text": "Campaign 103 has 25 customers appearing in both treatment and control.",
+     "sources": [
+      "S10"
+     ],
+     "value": 25.0
+    },
+    {
+     "text": "6 responses have response_date > campaign end_date + 30 days, all dated 2026-11-10.",
+     "sources": [
+      "S20"
+     ],
+     "value": 6.0
+    },
+    {
+     "text": "All 6 late responses belong to campaign 101 'Autumn data bundle' (end_date 2026-10-01).",
+     "sources": [
+      "S22",
+      "S24"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "title": "Campaign Performance",
+   "bullets": [
+    {
+     "text": "Warehouse volumes: 4 campaigns, 4025 contacts, 306 responses.",
+     "sources": [
+      "S3"
+     ],
+     "value": 306.0
+    },
+    {
+     "text": "Responses per campaign: 101=63, 102=94, 103=76, 104=73.",
+     "sources": [
+      "S5"
+     ],
+     "value": 94.0
+    },
+    {
+     "text": "Campaign 101: treatment 57/900 = 6.33% vs control 6/100 = 6.00%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 6.33
+    },
+    {
+     "text": "Campaign 102: treatment 74/900 = 8.22% vs control 5/100 = 5.00%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 8.22
+    },
+    {
+     "text": "Campaign 103: treatment 69/900 = 7.67% vs control 7/125 = 5.60%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 7.67
+    },
+    {
+     "text": "Campaign 104: treatment 70/900 = 7.78% vs control 3/100 = 3.00%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 7.78
+    }
+   ]
+  },
+  {
+   "title": "Policy & Context",
+   "bullets": [
+    {
+     "text": "Policy: response counts only within 14 days after contact; treatment/control must be disjoint; holdout is 10% of base, never below 1000.",
+     "sources": [
+      "S4",
+      "S6"
+     ],
+     "value": null
+    },
+    {
+     "text": "Wiki has 17 pages including data-quality-checklist, response-attribution, control-group-policy, uplift-methodology, incident-2026-08-duplicate-loads.",
+     "sources": [
+      "S2"
+     ],
+     "value": 17.0
+    },
+    {
+     "text": "The known duplicate-load incident (ETL restart loading the same responses file twice) is the documented cause of such duplicates.",
+     "sources": [
+      "S28"
+     ],
+     "value": null
+    },
+    {
+     "text": "No column matching churn/retention/status exists in any table, so churn cannot be measured for Win-back October.",
+     "sources": [
+      "S23",
+      "S25"
+     ],
+     "value": null
+    }
+   ]
+  }
+ ]
+}

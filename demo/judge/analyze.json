@@ -1,0 +1,208 @@
+{
+ "hypotheses": [
+  {
+   "id": "H1",
+   "statement": "Some responses are recorded more than once",
+   "status": "confirmed",
+   "evidence": [
+    {
+     "text": "15 groups of response rows share the same (customer_id, campaign_id, response_date, revenue) with count > 1, covering 30 rows; per the wiki deduplication rule these are duplicates of a single response.",
+     "sources": [
+      "S14",
+      "S13"
+     ],
+     "value": 15.0
+    },
+    {
+     "text": "The known duplicate-load incident (ETL restart loading the same responses file twice) is the documented cause of such duplicates.",
+     "sources": [
+      "S28"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H2",
+   "statement": "Some customers are in both treatment and control of the same campaign",
+   "status": "confirmed",
+   "evidence": [
+    {
+     "text": "Campaign 103 has 25 customers with more than one distinct grp in contacts, violating the disjoint treatment/control policy.",
+     "sources": [
+      "S15",
+      "S4"
+     ],
+     "value": 25.0
+    },
+    {
+     "text": "The data dictionary states a customer must be in exactly one group per campaign.",
+     "sources": [
+      "S27"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H3",
+   "statement": "Some responses are dated before the customer was contacted",
+   "status": "confirmed",
+   "evidence": [
+    {
+     "text": "12 responses join to a contact row of the same customer and campaign with response_date < contact_date; the attribution rule says such responses are never attributed.",
+     "sources": [
+      "S16",
+      "S13"
+     ],
+     "value": 12.0
+    }
+   ]
+  },
+  {
+   "id": "H4",
+   "statement": "Some campaigns end before they start",
+   "status": "rejected",
+   "evidence": [
+    {
+     "text": "count(*) of campaigns with end_date < start_date is 0.",
+     "sources": [
+      "S17"
+     ],
+     "value": 0.0
+    },
+    {
+     "text": "All four campaigns have end_date after start_date (101 09-01..10-01, 102 09-10..10-01, 103 09-15..10-13, 104 10-01..10-15).",
+     "sources": [
+      "S24"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H5",
+   "statement": "Treatment beats control on response rate in every campaign",
+   "status": "confirmed",
+   "evidence": [
+    {
+     "text": "Campaign 101: treatment 57/900 = 6.33% vs control 6/100 = 6.00%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 6.33
+    },
+    {
+     "text": "Campaign 102: treatment 74/900 = 8.22% vs control 5/100 = 5.00%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 8.22
+    },
+    {
+     "text": "Campaign 103: treatment 69/900 = 7.67% vs control 7/125 = 5.60%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 7.67
+    },
+    {
+     "text": "Campaign 104: treatment 70/900 = 7.78% vs control 3/100 = 3.00%.",
+     "sources": [
+      "S18"
+     ],
+     "value": 7.78
+    },
+    {
+     "text": "Rates are computed on distinct customers (deduplicated contacts and responses), so duplicate response rows do not inflate them.",
+     "sources": [
+      "S18",
+      "S13"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H6",
+   "statement": "Some responses in campaign 101 are recorded more than once",
+   "status": "rejected",
+   "evidence": [
+    {
+     "text": "count(*) of duplicate (customer, campaign, date, revenue) groups restricted to campaign_id = 101 is 0.",
+     "sources": [
+      "S19"
+     ],
+     "value": 0.0
+    },
+    {
+     "text": "The 15 duplicate groups found overall are not in campaign 101 (campaign 102 alone has 15 duplicate groups).",
+     "sources": [
+      "S14",
+      "S7"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H7",
+   "statement": "Some responses arrived more than 30 days after their campaign ended",
+   "status": "confirmed",
+   "evidence": [
+    {
+     "text": "6 responses have response_date > campaign end_date + 30 days, all dated 2026-11-10.",
+     "sources": [
+      "S20"
+     ],
+     "value": 6.0
+    },
+    {
+     "text": "All 6 belong to campaign 101 'Autumn data bundle' (end_date 2026-10-01), i.e. 40 days after the campaign ended.",
+     "sources": [
+      "S22",
+      "S24"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H8",
+   "statement": "Win-back October reduced churn among contacted customers",
+   "status": "inconclusive",
+   "evidence": [
+    {
+     "text": "Campaign 104 'Win-back October' exists (sms, 2026-10-01..2026-10-15), but the warehouse has only campaigns, contacts and responses tables.",
+     "sources": [
+      "S24",
+      "S12"
+     ],
+     "value": null
+    },
+    {
+     "text": "No column matching churn/retention/status exists in any table, so churn cannot be measured; the churn definition (no paid activity for 30 consecutive days) requires paid-activity data that is not present.",
+     "sources": [
+      "S23",
+      "S25"
+     ],
+     "value": null
+    }
+   ]
+  },
+  {
+   "id": "H9",
+   "statement": "Some customers were contacted twice within the same group of one campaign",
+   "status": "rejected",
+   "evidence": [
+    {
+     "text": "Grouping contacts by (customer_id, campaign_id, grp) and keeping groups with count(*) > 1 returns no rows, so no customer has more than one contact row within a single group of a campaign.",
+     "sources": [
+      "S21"
+     ],
+     "value": 0.0
+    }
+   ]
+  }
+ ]
+}
