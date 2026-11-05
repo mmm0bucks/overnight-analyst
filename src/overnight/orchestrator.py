@@ -1,5 +1,9 @@
-"""Plain-code orchestrator around the LLM stages: preflight, order, budget, failure
-isolation, artifacts, gates, publishing. The model gets none of these jobs."""
+"""Orchestrator around the LLM stages: preflight, order, budget, failure isolation,
+artifacts, gates, publishing. The model gets none of these jobs.
+
+The stage order is a LangGraph StateGraph: each stage is a node, and conditional edges
+end the night early (failed preflight, spent budget). Gates and publishing stay plain code
+after the graph: the framework routes, our code decides what is true."""
 
 from __future__ import annotations
 
@@ -8,20 +12,46 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import partial
+from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
-from pydantic import BaseModel
+from langgraph.graph import END, START, StateGraph
 
 from overnight.agent import Budget, BudgetExceeded, Limits, StageFailed, run_stage
 from overnight.gates import Gate, run_gates, status
 from overnight.llm import LLM, LLMError
 from overnight.publisher import publish
 from overnight.rag import Embedder
-from overnight.stages import STAGES, AnalyzeOut, SynthesizeOut
+from overnight.stages import STAGES, AnalyzeOut, Stage, SynthesizeOut
 from overnight.tools import Toolbox
 
 REQUIRED = ("tasks.json", "wiki", "warehouse.duckdb", "hypotheses.json")
+
+
+class Night(TypedDict):
+    """Graph state. Plain JSON only, so a checkpointer can save it as is."""
+
+    arts: dict[str, dict[str, Any]]  # stage name -> its validated output
+    errors: dict[str, str]  # stage name -> why it failed or was skipped
+    stop: bool  # the budget is spent: no further stage may run
+
+
+def night_graph(do_stage: Callable[[Stage, Night], dict[str, Any]]) -> Any:
+    """START -> collect -> analyze -> synthesize -> critique -> END, leaving early on a
+    failed preflight or a spent budget. A failed stage does not stop the night."""
+    g = StateGraph(Night)
+    names = [s.name for s in STAGES]
+    for s in STAGES:
+        g.add_node(s.name, partial(do_stage, s))
+    # the target lists only tell LangGraph where an edge may go, for the drawn graph
+    g.add_conditional_edges(START, lambda st: END if st["errors"] else names[0],
+                            [names[0], END])
+    for a, b in pairwise(names):
+        g.add_conditional_edges(a, lambda st, b=b: END if st["stop"] else b, [b, END])
+    g.add_edge(names[-1], END)
+    return g.compile()
 
 
 @dataclass
@@ -52,7 +82,6 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
         h.setdefault("status", "open")
     budget, box = Budget(limits), Toolbox(workspace, today, limits.max_sql_per_stage,
                                           limits.max_sql_rows, embedder)
-    arts: dict[str, BaseModel] = {}
     errors: dict[str, str] = {}
 
     missing = [f for f in REQUIRED if not (workspace / f).exists()]
@@ -66,24 +95,29 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
         errors["preflight"] = str(e)
 
     open_hyps = [h for h in hypotheses if h["status"] in ("open", "inconclusive")]
-    for stage in [] if errors else STAGES:
-        if "collect" in stage.needs and "collect" not in arts:
-            errors[stage.name] = "skipped: no collect output"
-            continue
-        inputs = {n: open_hyps if n == "hypotheses" else arts[n].model_dump()
-                  for n in stage.needs if n == "hypotheses" or n in arts}
+
+    def do_stage(stage: Stage, st: Night) -> dict[str, Any]:
+        done, failed = st["arts"], dict(st["errors"])
+        if "collect" in stage.needs and "collect" not in done:
+            failed[stage.name] = "skipped: no collect output"
+            return {"errors": failed}
+        inputs = {n: open_hyps if n == "hypotheses" else done[n]
+                  for n in stage.needs if n == "hypotheses" or n in done}
         box.new_stage()
         try:
-            arts[stage.name] = run_stage(stage, llm, stage.user(today.isoformat(), inputs),
-                                         box, budget, emit)
+            out = run_stage(stage, llm, stage.user(today.isoformat(), inputs), box, budget, emit)
         except (StageFailed, LLMError, BudgetExceeded) as e:
-            errors[stage.name] = str(e)
+            failed[stage.name] = str(e)
             emit({"event": "stage_failed", "stage": stage.name, "error": str(e)})
-            if isinstance(e, BudgetExceeded):
-                break
-            continue
-        (run_dir / f"{stage.name}.json").write_text(arts[stage.name].model_dump_json(indent=1),
+            return {"errors": failed, "stop": isinstance(e, BudgetExceeded)}
+        (run_dir / f"{stage.name}.json").write_text(out.model_dump_json(indent=1),
                                                  encoding="utf-8")
+        return {"arts": {**done, stage.name: out.model_dump(mode="json")}}
+
+    night = night_graph(do_stage).invoke({"arts": {}, "errors": errors, "stop": False})
+    errors = night["errors"]
+    arts = {s.name: s.schema.model_validate(night["arts"][s.name])
+            for s in STAGES if s.name in night["arts"]}
 
     gates = run_gates(arts, errors, box.sources, [h["id"] for h in open_hyps])
     result = status(gates, arts)
