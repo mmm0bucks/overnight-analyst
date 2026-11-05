@@ -88,5 +88,40 @@ def test_stage_order_is_a_langgraph_graph() -> None:
 
     mermaid = night_graph(lambda stage, st: {}).get_graph().draw_mermaid()
     for edge in ("__start__ -.-> collect", "collect -.-> analyze", "analyze -.-> synthesize",
-                 "synthesize -.-> critique", "critique --> __end__", "analyze -.-> __end__"):
+                 "synthesize -.-> critique", "critique -.-> __end__", "analyze -.-> __end__",
+                 "critique -.-> synthesize"):
         assert edge in mermaid
+
+
+class Reviewer(OfflinePolicy):
+    """Offline policy whose reviewer asks for a rewrite the first `strict` times."""
+
+    def __init__(self, strict: int) -> None:
+        self.strict, self.reviews, self.reviews_seen = strict, 0, list[Any]()
+
+    def synthesize(self, inputs: dict[str, Any], results: list[Any]) -> LLMResponse:
+        self.reviews_seen.append(inputs.get("review"))
+        return super().synthesize(inputs, results)
+
+    def critique(self, inputs: dict[str, Any], results: list[Any]) -> LLMResponse:
+        self.reviews += 1
+        if self.reviews <= self.strict:
+            return LLMResponse(content=json.dumps({"verdict": "revise",
+                                                   "issues": ["headline overstates"]}))
+        return super().critique(inputs, results)
+
+
+def test_revise_sends_the_report_back_once(ws: Path) -> None:
+    llm = Reviewer(strict=1)
+    res = _run(ws, llm)
+    assert res.status == "ok" and llm.reviews == 2
+    assert llm.reviews_seen == [None, {"verdict": "revise", "issues": ["headline overstates"]}]
+    assert (res.run_dir / "synthesize.draft.json").exists()
+    final = json.loads((res.run_dir / "finalize.json").read_text(encoding="utf-8"))
+    assert final["usage"]["revisions"] == 1
+
+
+def test_rewrite_loop_is_bounded(ws: Path) -> None:
+    llm = Reviewer(strict=99)  # never satisfied
+    res = _run(ws, llm)
+    assert llm.reviews == 2 and res.status == "ok"  # "revise" still passes the gate
