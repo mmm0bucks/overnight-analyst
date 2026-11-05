@@ -25,7 +25,7 @@ overnight run
 
 | Module | Responsibility |
 |---|---|
-| `orchestrator.py` | preflight, stage order, failure isolation, artifacts, events log |
+| `orchestrator.py` | preflight, stage order (a LangGraph graph), failure isolation, artifacts, events log |
 | `stages.py` | output contracts (pydantic), role prompts, allowed tools per stage |
 | `agent.py` | budget + bounded tool-calling loop for one stage, one repair for bad JSON |
 | `tools.py` | read-only tools; every call becomes a numbered source `S1, S2, ...` |

@@ -81,3 +81,12 @@ def test_non_ascii_model_output_is_saved(ws: Path) -> None:
     f.write_text(text, encoding="utf-8")
     res = _run(ws)
     assert MINUS in (res.run_dir / "analyze.json").read_text(encoding="utf-8")
+
+
+def test_stage_order_is_a_langgraph_graph() -> None:
+    from overnight.orchestrator import night_graph
+
+    mermaid = night_graph(lambda stage, st: {}).get_graph().draw_mermaid()
+    for edge in ("__start__ -.-> collect", "collect -.-> analyze", "analyze -.-> synthesize",
+                 "synthesize -.-> critique", "critique --> __end__", "analyze -.-> __end__"):
+        assert edge in mermaid
