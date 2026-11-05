@@ -23,8 +23,11 @@ def summarize(results: list[RunResult], expected: dict[str, str]) -> str:
         for h in ids:
             correct[h] += got.get(h) == expected[h]
         marks = [("✅ " if got.get(h) == expected[h] else "❌ ") + got.get(h, "—") for h in ids]
-        rows.append(f"| {r.run_id} | {r.status} | {usage['tokens']} | {usage['seconds']} | "
-                    + " | ".join(marks) + " |")
+        critique = r.run_dir / "critique.json"
+        review = (json.loads(critique.read_text(encoding="utf-8"))["verdict"]
+                  if critique.exists() else "—")
+        rows.append(f"| {r.run_id} | {r.status} | {review} | {usage.get('revisions', 0)} | "
+                    f"{usage['tokens']} | {usage['seconds']} | " + " | ".join(marks) + " |")
     n, k = len(results), len(ids)
     total = sum(correct.values())
     # pass^k: right in EVERY run, i.e. reliable rather than lucky once
@@ -32,13 +35,14 @@ def summarize(results: list[RunResult], expected: dict[str, str]) -> str:
     # a constant answer must score badly, or the hypothesis set is too easy to game
     base = ", ".join(f"always {s} {sum(v == s for v in expected.values())}/{k}"
                      for s in ("confirmed", "rejected", "inconclusive"))
-    head = "| run | status | tokens | seconds | " + " | ".join(ids) + " |"
+    head = ("| run | status | review | rewrites | tokens | seconds | "
+            + " | ".join(ids) + " |")
     return "\n".join([
         f"# Eval: {n} run(s), {total}/{n * k} hypothesis checks correct", "",
         f"- pass@1 (share of correct checks): {total / max(n * k, 1):.2f}",
         f"- pass^{n} (hypotheses right in every run): {always}/{k}",
         f"- baselines with a constant answer: {base}", "",
-        head, "|" + "---|" * (4 + len(ids)), *rows, "",
+        head, "|" + "---|" * (6 + len(ids)), *rows, "",
         "| hypothesis | expected | correct |", "|---|---|---|",
         *[f"| {h} | {expected[h]} | {correct[h]}/{n} |" for h in ids], ""])
 

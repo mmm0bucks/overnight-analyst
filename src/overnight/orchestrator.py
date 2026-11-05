@@ -36,11 +36,16 @@ class Night(TypedDict):
     arts: dict[str, dict[str, Any]]  # stage name -> its validated output
     errors: dict[str, str]  # stage name -> why it failed or was skipped
     stop: bool  # the budget is spent: no further stage may run
+    revisions: int  # how many times the report went back to the editor
+
+
+MAX_REVISIONS = 1  # one rewrite after a "revise" verdict; then the gates have the last word
 
 
 def night_graph(do_stage: Callable[[Stage, Night], dict[str, Any]]) -> Any:
     """START -> collect -> analyze -> synthesize -> critique -> END, leaving early on a
-    failed preflight or a spent budget. A failed stage does not stop the night."""
+    failed preflight or a spent budget. A failed stage does not stop the night. A "revise"
+    verdict sends the report back to synthesize once, with the reviewer's issues."""
     g = StateGraph(Night)
     names = [s.name for s in STAGES]
     for s in STAGES:
@@ -50,7 +55,13 @@ def night_graph(do_stage: Callable[[Stage, Night], dict[str, Any]]) -> Any:
                             [names[0], END])
     for a, b in pairwise(names):
         g.add_conditional_edges(a, lambda st, b=b: END if st["stop"] else b, [b, END])
-    g.add_edge(names[-1], END)
+
+    def after_review(st: Night) -> str:
+        verdict = st["arts"].get("critique", {}).get("verdict")
+        again = verdict == "revise" and st["revisions"] < MAX_REVISIONS and not st["stop"]
+        return "synthesize" if again else END
+
+    g.add_conditional_edges(names[-1], after_review, ["synthesize", END])
     return g.compile()
 
 
@@ -103,6 +114,11 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
             return {"errors": failed}
         inputs = {n: open_hyps if n == "hypotheses" else done[n]
                   for n in stage.needs if n == "hypotheses" or n in done}
+        redo = stage.name == "synthesize" and "critique" in done
+        if redo:  # keep the first draft and its review next to the final ones
+            inputs["review"] = done["critique"]
+            for name in ("synthesize", "critique"):
+                (run_dir / f"{name}.json").replace(run_dir / f"{name}.draft.json")
         box.new_stage()
         try:
             out = run_stage(stage, llm, stage.user(today.isoformat(), inputs), box, budget, emit)
@@ -112,9 +128,11 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
             return {"errors": failed, "stop": isinstance(e, BudgetExceeded)}
         (run_dir / f"{stage.name}.json").write_text(out.model_dump_json(indent=1),
                                                  encoding="utf-8")
-        return {"arts": {**done, stage.name: out.model_dump(mode="json")}}
+        return {"arts": {**done, stage.name: out.model_dump(mode="json")},
+                "revisions": st["revisions"] + int(redo)}
 
-    night = night_graph(do_stage).invoke({"arts": {}, "errors": errors, "stop": False})
+    night = night_graph(do_stage).invoke(
+        {"arts": {}, "errors": errors, "stop": False, "revisions": 0})
     errors = night["errors"]
     arts = {s.name: s.schema.model_validate(night["arts"][s.name])
             for s in STAGES if s.name in night["arts"]}
@@ -127,7 +145,7 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
         for h in hypotheses:
             if h["id"] in found:
                 h.update(status=found[h["id"]], last_checked=today.isoformat())
-    usage = budget.usage()
+    usage = {**budget.usage(), "revisions": night["revisions"]}
     (run_dir / "finalize.json").write_text(json.dumps(
         {"status": result, "gates": [g.__dict__ for g in gates], "usage": usage,
          "sources": [s.__dict__ for s in box.sources.values()]}, indent=1, default=str),

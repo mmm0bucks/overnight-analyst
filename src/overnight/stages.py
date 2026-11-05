@@ -85,7 +85,8 @@ STAGES = [
           ["list_wiki_pages", "search_wiki", "read_wiki", "run_sql"], AnalyzeOut,
           ["collect", "hypotheses"]),
     Stage("synthesize", "You are the editor. Turn the input into a short morning report. "
-          "Reuse claims only: rephrase, group, prioritize. Add NO new facts or sources.",
+          "Reuse claims only: rephrase, group, prioritize. Add NO new facts or sources. If the "
+          "input has a review, fix exactly the issues it lists: drop or reword, never invent.",
           [], SynthesizeOut, ["collect", "analyze"]),
     Stage("critique", "You are the reviewer. Check the report against its inputs: unsupported "
           "claims, wrong numbers, guesses stated as facts. Verdict: accept, revise or reject.",

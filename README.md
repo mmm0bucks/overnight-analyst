@@ -180,6 +180,9 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
   заканчивают ночь раньше (не прошёл preflight, кончился бюджет). Проверки и публикация
   остаются обычным кодом после графа: фреймворк решает, куда идти, а что правда — наш код.
   Состояние графа — только JSON, чтобы дальше его можно было сохранять и продолжать.
+* **Цикл доработки.** Если ревью вернуло `revise`, отчёт один раз уходит обратно редактору
+  вместе с замечаниями, а черновик и первое ревью сохраняются рядом (`*.draft.json`).
+  Второго круга нет: дальше последнее слово за проверками в коде.
 * **Узкие этапы, у каждого свой чистый контекст.** Сбор не анализирует, синтез не
   добавляет фактов, критика только проверяет. Каждый этап возвращает JSON по контракту.
 * **Инструменты только на чтение.** Трекер, вики и SQL. Инструментов записи нет вообще.
@@ -237,6 +240,7 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 | 2026-10-30, после | **15 из 15** | 3× `ok` | 49–65 тыс. | 218–384 с |
 | 2026-11-03, 9 гипотез (оценка v2) | **26 из 27** | 2× `ok`, 1× `partial` | 66–70 тыс. | 37–57 с |
 | 2026-11-05, оркестратор на LangGraph | **27 из 27** | 2× `ok`, 1× `partial` | 66–71 тыс. | 84–137 с |
+| 2026-11-05, цикл доработки | **26 из 27** | 2× `ok`, 1× `partial` | 68–89 тыс. | 100–183 с |
 
 Оценка v2: доля верных проверок 0,96; верны во всех трёх прогонах 8 из 9 гипотез (pass^3).
 Ответ «всегда подтверждено» набрал бы 5 из 9, пустой агент — 0. Единственная ошибка: в одном
@@ -249,6 +253,12 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 Перенос на LangGraph поведение не изменил: 27 из 27, все 9 гипотез верны во всех трёх
 прогонах, токены те же. Время выросло из-за провайдера, а не графа: офлайн-прогон занимает
 0,097 с с графом и 0,098 с без него. `partial` — тот же ноль из отсутствующей строки.
+
+Цикл доработки: ревью попросило переписать отчёт в 2 прогонах из 3, после одного круга один
+отчёт ревью приняло, второй нет. Итоговое «accept» — в 2 из 3 прогонов против 1 из 3 до
+доработки. Цена — 12–21 тыс. токенов на переписанный прогон. Само ревью ошибается: дважды
+оно сочло, что источник S7/S8 отсутствует, хотя он есть в результатах сбора. Ошибка в H9
+случилась на этапе анализа, до доработки.
 
 «До» analyze каждый раз падал одинаково: исправление битого JSON выпадало на последний ход и
 терялось. «После» в одном прогоне модель снова прислала испорченный JSON
@@ -461,6 +471,9 @@ preflight → collect → analyze → synthesize → critique → finalize (gate
   edges end the night early (failed preflight, spent budget). Gates and publishing stay plain
   code after the graph: the framework routes, our code decides what is true. Graph state is
   plain JSON, so it can be checkpointed and resumed next.
+* **Rewrite loop.** If the review says `revise`, the report goes back to the editor once,
+  with the reviewer's issues; the draft and the first review are kept (`*.draft.json`).
+  There is no second round: after that the code gates have the last word.
 * **Narrow stages, fresh context each.** Collect does not analyze, synthesize adds no
   facts, critique only reviews. Each stage returns JSON validated against a contract.
 * **Read-only tools.** Tracker, wiki and SQL. There is no write tool at all.
@@ -516,6 +529,7 @@ a fresh folder:
 | 2026-10-30, after | **15/15** | 3× `ok` | 49–65k | 218–384 s |
 | 2026-11-03, 9 hypotheses (eval v2) | **26/27** | 2× `ok`, 1× `partial` | 66–70k | 37–57 s |
 | 2026-11-05, orchestrator on LangGraph | **27/27** | 2× `ok`, 1× `partial` | 66–71k | 84–137 s |
+| 2026-11-05, rewrite loop | **26/27** | 2× `ok`, 1× `partial` | 68–89k | 100–183 s |
 
 Eval v2: pass@1 0.96; 8 of 9 hypotheses right in all three runs (pass^3). Answering "always
 confirmed" would score 5/9, the empty agent scores 0. The one miss: in one run the model
@@ -528,6 +542,12 @@ the output limit.
 Moving to LangGraph did not change behaviour: 27/27, all 9 hypotheses right in every run,
 same tokens. The longer time is the provider, not the graph: an offline run takes 0.097 s
 with the graph and 0.098 s without it. The `partial` is the same zero from a missing row.
+
+Rewrite loop: the review asked for a rewrite in 2 of 3 runs; after one round it accepted one
+of them and not the other. A final "accept" in 2 of 3 runs, against 1 of 3 before the
+rewrite. Cost: 12–21k tokens per rewritten run. The review itself errs: twice it said source
+S7/S8 was missing although the collect results have it. The H9 miss happened in analyze,
+before any rewrite.
 
 Before, analyze failed the same way every time: the repair of a broken JSON answer landed on
 the last turn and was lost. After, one run again got corrupted JSON from the model
