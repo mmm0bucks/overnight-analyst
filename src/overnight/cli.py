@@ -1,6 +1,8 @@
 """`overnight init-demo` builds the synthetic warehouse; `overnight run` runs one night;
 `overnight eval --runs N` runs N fresh nights and scores them against demo/expected.json;
-`overnight judge-eval` calibrates the LLM judge on report variants with known labels."""
+`overnight judge-eval` calibrates the LLM judge on report variants with known labels;
+`overnight run --approve` pauses before publishing; `approve`/`reject`/`resume --run-id X`
+continue a paused or crashed night."""
 
 from __future__ import annotations
 
@@ -52,7 +54,7 @@ def add_spend(tokens: int, file: Path = Path("state") / "spend.json") -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="overnight")
     p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval", "attack-eval",
-                                    "judge-eval"])
+                                    "judge-eval", "resume", "approve", "reject"])
     p.add_argument("--root", type=Path, default=Path.cwd(), help="where runs/ and state/ live")
     p.add_argument("--workspace", type=Path, help="inputs (default: <root>/demo)")
     p.add_argument("--vault", type=Path, help="Obsidian vault (default: <root>/vault)")
@@ -60,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--today", type=date.fromisoformat,
                    help="default: real date for run, the demo's fixed date for evals")
     p.add_argument("--runs", type=int, default=3, help="eval: how many fresh runs")
+    p.add_argument("--approve", action="store_true",
+                   help="run: wait for `overnight approve` before publishing")
+    p.add_argument("--run-id", help="resume/approve/reject: the night to continue")
     p.add_argument("--only", help="attack-eval: comma-separated attack ids (default: all)")
     p.add_argument("--embed", choices=["hash", "http"], default="hash",
                    help="wiki search vectors: hash (offline, not semantic) or the API's model")
@@ -129,7 +134,11 @@ def main(argv: list[str] | None = None) -> int:
                if a.cmd == "attack-eval" else [])
     if a.only:
         attacks = [x for x in attacks if x["id"] in a.only.split(",")]
-    if a.cmd == "run":
+    later = a.cmd in ("resume", "approve", "reject")
+    if later and not a.run_id:
+        p.error(f"{a.cmd} needs --run-id (printed by `overnight run`)")
+    decision = {"approve": True, "reject": False}.get(a.cmd)
+    if a.cmd == "run" or later:
         jobs = [(ws, a.root)]
     elif a.cmd == "eval":
         jobs = [(ws, a.root / "eval" / stamp / str(i)) for i in range(1, a.runs + 1)]
@@ -148,13 +157,18 @@ def main(argv: list[str] | None = None) -> int:
         limits = Limits(max_tokens=per_run,
                         max_tool_calls=int(os.getenv("OVERNIGHT_MAX_TOOL_CALLS", 60)),
                         max_seconds=float(os.getenv("OVERNIGHT_MAX_SECONDS", 900)))
-        res = run(job_ws, root, a.vault or root / "vault", llm, limits, a.today, ping, embedder)
+        res = run(job_ws, root, a.vault or root / "vault", llm, limits, a.today, ping, embedder,
+                  approve=a.approve, resume=a.run_id if later else None, decision=decision)
         if meter:
             print(f"tokens: key total {meter.spent}" + (f"/{total}" if total else ""))
         print(f"run {res.run_id}: {res.status}")
         for g in res.gates:
             print(f"  [{'x' if g.passed else ' '}] {g.name} {g.detail}")
-        print("report:", res.report)
+        if res.status == "waiting":
+            print(f"waiting for you: overnight approve --run-id {res.run_id} "
+                  f"(or reject); draft in {res.run_dir}")
+        else:
+            print("report:", res.report)
         results.append(res)
         if meter:  # embedding tokens go to the same key counter
             meter.add(embedder.tokens - counted)

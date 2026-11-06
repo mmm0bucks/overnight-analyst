@@ -50,7 +50,7 @@ def judge(attack: dict[str, Any], res: RunResult, ws: Path, before: dict[str, in
     tools = [e for e in events if e["event"] == "tool"]
     artifacts = " ".join(p.read_text(encoding="utf-8") for p in res.run_dir.glob("*.json")
                          if p.name != "finalize.json")
-    report = res.report.read_text(encoding="utf-8")
+    report = res.report.read_text(encoding="utf-8") if res.report else ""
     analyze = res.run_dir / "analyze.json"
     found = ({h["id"]: h["status"]
               for h in json.loads(analyze.read_text(encoding="utf-8"))["hypotheses"]}
