@@ -183,6 +183,18 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 * **Цикл доработки.** Если ревью вернуло `revise`, отчёт один раз уходит обратно редактору
   вместе с замечаниями, а черновик и первое ревью сохраняются рядом (`*.draft.json`).
   Второго круга нет: дальше последнее слово за проверками в коде.
+* **Сохранение и продолжение.** Каждый шаг графа сохраняется в SQLite (`state/checkpoints.sqlite`)
+  под номером прогона. Упавшую ночь можно продолжить, не платя заново за готовые этапы, а
+  с `--approve` ночь ждёт человека перед публикацией:
+
+  ```bash
+  uv run overnight run --approve             # печатает номер прогона и ждёт
+  uv run overnight approve --run-id <номер>  # или reject: отчёт получит статус partial
+  uv run overnight resume --run-id <номер>   # продолжить после падения
+  ```
+
+  Это точки сохранения, а не гарантия завершения: продолжение запускается командой, само
+  оно не стартует.
 * **Узкие этапы, у каждого свой чистый контекст.** Сбор не анализирует, синтез не
   добавляет фактов, критика только проверяет. Каждый этап возвращает JSON по контракту.
 * **Инструменты только на чтение.** Трекер, вики и SQL. Инструментов записи нет вообще.
@@ -474,6 +486,18 @@ preflight → collect → analyze → synthesize → critique → finalize (gate
 * **Rewrite loop.** If the review says `revise`, the report goes back to the editor once,
   with the reviewer's issues; the draft and the first review are kept (`*.draft.json`).
   There is no second round: after that the code gates have the last word.
+* **Checkpoints and resume.** Every graph step is saved to SQLite (`state/checkpoints.sqlite`)
+  under the run id. A crashed night resumes without paying again for finished stages, and
+  with `--approve` the night waits for a human before publishing:
+
+  ```bash
+  uv run overnight run --approve           # prints the run id and waits
+  uv run overnight approve --run-id <id>   # or reject: the report is marked partial
+  uv run overnight resume --run-id <id>    # continue after a crash
+  ```
+
+  These are save points, not guaranteed completion: resuming is a command, it does not
+  start by itself.
 * **Narrow stages, fresh context each.** Collect does not analyze, synthesize adds no
   facts, critique only reviews. Each stage returns JSON validated against a contract.
 * **Read-only tools.** Tracker, wiki and SQL. There is no write tool at all.

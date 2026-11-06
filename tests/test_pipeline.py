@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from conftest import TODAY
 
 from overnight.agent import Limits
@@ -125,3 +126,52 @@ def test_rewrite_loop_is_bounded(ws: Path) -> None:
     llm = Reviewer(strict=99)  # never satisfied
     res = _run(ws, llm)
     assert llm.reviews == 2 and res.status == "ok"  # "revise" still passes the gate
+
+
+class PowerCut(OfflinePolicy):
+    """Dies (uncaught, like a killed process) the first time analyze calls the model."""
+
+    def __init__(self) -> None:
+        self.collects, self.dead = 0, False
+
+    def collect(self, inputs: dict[str, Any], results: list[Any]) -> LLMResponse:
+        self.collects += 1
+        return super().collect(inputs, results)
+
+    def analyze(self, inputs: dict[str, Any], results: list[Any]) -> LLMResponse:
+        if not self.dead:
+            self.dead = True
+            raise KeyboardInterrupt("power cut")
+        return super().analyze(inputs, results)
+
+
+def test_crashed_night_resumes_without_redoing_finished_stages(ws: Path) -> None:
+    llm = PowerCut()
+    with pytest.raises(KeyboardInterrupt):
+        _run(ws, llm)
+    run_id = next((ws.parent / "runs").iterdir()).name
+    calls_before = llm.collects
+    res = run(ws, ws.parent, ws.parent / "vault", llm, DEFAULT, TODAY, resume=run_id)
+    assert res.status == "ok" and res.run_id == run_id
+    assert llm.collects == calls_before  # collect was not paid for twice
+    events = (res.run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert '"event": "resumed"' in events and '"from": ["analyze"]' in events
+
+
+def test_resume_needs_a_saved_run(ws: Path) -> None:
+    with pytest.raises(ValueError, match="no saved run"):
+        run(ws, ws.parent, ws.parent / "vault", OfflinePolicy(), DEFAULT, TODAY, resume="nope")
+
+
+@pytest.mark.parametrize(("decision", "status"), [(True, "ok"), (False, "partial")])
+def test_night_waits_for_a_human_before_publishing(ws: Path, decision: bool,
+                                                   status: str) -> None:
+    vault = ws.parent / "vault"
+    paused = run(ws, ws.parent, vault, OfflinePolicy(), DEFAULT, TODAY, approve=True)
+    assert paused.status == "waiting" and paused.report is None
+    assert not (vault / "Overnight" / "Reports").exists()  # nothing published yet
+    done = run(ws, ws.parent, vault, OfflinePolicy(), DEFAULT, TODAY,
+               resume=paused.run_id, decision=decision)
+    assert done.status == status and done.report is not None
+    gate = next(g for g in done.gates if g.name == "human_approved")
+    assert gate.passed is decision
