@@ -2,7 +2,7 @@
 
 **English** · [Русский](0001-deterministic-orchestrator.ru.md)
 
-**Status:** accepted
+**Status:** accepted; since 2026-11-05 the stage order is a LangGraph graph, see [0004](0004-langgraph-over-own-gates.md)
 
 **Context.** An unattended overnight job fails in boring ways: network down at start,
 a stage hangs, tokens run away, the model returns malformed JSON or says "done" when it
