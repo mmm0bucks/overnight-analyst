@@ -88,6 +88,10 @@ def night_graph(do_stage: Callable[[Stage, Night], dict[str, Any]],
     return g.compile(checkpointer=checkpointer)
 
 
+def new_run_id() -> str:
+    return f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"  # unique per run
+
+
 @dataclass
 class RunResult:
     run_id: str
@@ -100,10 +104,10 @@ class RunResult:
 def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, today: date,
         ping: Callable[[], None] | None = None, embedder: Embedder | None = None, *,
         approve: bool = False, resume: str | None = None,
-        decision: bool | None = None) -> RunResult:
+        decision: bool | None = None, run_id: str | None = None) -> RunResult:
     """One night. `resume` continues a saved run by id (after a crash, or with the human's
-    `decision` when it waits for approval)."""
-    run_id = resume or f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+    `decision` when it waits for approval). `run_id` lets a caller know the id up front."""
+    run_id = resume or run_id or new_run_id()
     run_dir = root / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=bool(resume))
     (root / "state").mkdir(parents=True, exist_ok=True)

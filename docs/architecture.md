@@ -25,6 +25,7 @@ overnight run
 
 | Module | Responsibility |
 |---|---|
+| `api.py` | HTTP API (FastAPI): start a night, status, report, approval |
 | `orchestrator.py` | preflight, stage order (a LangGraph graph), failure isolation, artifacts, events log |
 | `stages.py` | output contracts (pydantic), role prompts, allowed tools per stage |
 | `agent.py` | budget + bounded tool-calling loop for one stage, one repair for bad JSON |

@@ -13,7 +13,8 @@ Each item is planned as a separate pull request.
 - [x] Eval v2: hard and negative hypotheses, pass^k, constant-answer baselines, null-agent check
 - [x] LLM judge calibrated on variants with known labels (Cohen's kappa)
 - [ ] More judge variants and a held-out set
-- [ ] FastAPI service + ADR "why not LangGraph"
+- [x] LangGraph over our own gates: rewrite loop, checkpoints and resume, human approval (ADR 0004)
+- [x] FastAPI: start a night, status, report, approval over HTTP
 - [ ] MCP server for the read-only tools
 - [ ] OpenTelemetry GenAI trace export (view in Phoenix)
 - [ ] Per-stage wall-clock timeout (run stages in a subprocess, kill on timeout)

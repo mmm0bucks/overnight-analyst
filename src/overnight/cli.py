@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -51,10 +52,23 @@ def add_spend(tokens: int, file: Path = Path("state") / "spend.json") -> None:
         file.write_text(json.dumps({"tokens": spent + tokens}), encoding="utf-8")
 
 
+def make_llm(kind: str) -> tuple[LLM, Callable[[], None] | None]:
+    """offline (default), null or http; http is metered against the key's lifetime cap."""
+    if kind == "null":
+        return NullAgent(), None
+    if kind != "http":
+        return OfflinePolicy(), None
+    env = {k: os.getenv(f"OVERNIGHT_LLM_{k}") for k in ("BASE_URL", "API_KEY", "MODEL")}
+    if not all(env.values()):
+        raise ValueError("set OVERNIGHT_LLM_BASE_URL, _API_KEY and _MODEL (see .env.example)")
+    http = HttpLLM(env["BASE_URL"] or "", env["API_KEY"] or "", env["MODEL"] or "")
+    return Metered(http, Path("state") / "spend.json"), http.ping
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="overnight")
     p.add_argument("cmd", choices=["init-demo", "run", "eval", "rag-eval", "attack-eval",
-                                    "judge-eval", "resume", "approve", "reject"])
+                                    "judge-eval", "resume", "approve", "reject", "serve"])
     p.add_argument("--root", type=Path, default=Path.cwd(), help="where runs/ and state/ live")
     p.add_argument("--workspace", type=Path, help="inputs (default: <root>/demo)")
     p.add_argument("--vault", type=Path, help="Obsidian vault (default: <root>/vault)")
@@ -64,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--runs", type=int, default=3, help="eval: how many fresh runs")
     p.add_argument("--approve", action="store_true",
                    help="run: wait for `overnight approve` before publishing")
+    p.add_argument("--port", type=int, default=8000, help="serve: HTTP port on 127.0.0.1")
     p.add_argument("--run-id", help="resume/approve/reject: the night to continue")
     p.add_argument("--only", help="attack-eval: comma-separated attack ids (default: all)")
     p.add_argument("--embed", choices=["hash", "http"], default="hash",
@@ -73,6 +88,12 @@ def main(argv: list[str] | None = None) -> int:
     a.today = a.today or (demo_data.TODAY if "eval" in a.cmd else date.today())
     ws = a.workspace or a.root / "demo"
 
+    if a.cmd == "serve":
+        import uvicorn
+
+        from overnight.api import create_app
+        uvicorn.run(create_app(a.root, a.llm), host="127.0.0.1", port=a.port)
+        return 0
     if a.cmd == "init-demo":
         print("warehouse:", demo_data.build(ws / "warehouse.duckdb"))
         return 0
@@ -117,16 +138,11 @@ def main(argv: list[str] | None = None) -> int:
     # Lifetime cap for a prepaid key, shared by all --root dirs: ./state/spend.json in the
     # directory you run from (where .env lives).
     # ponytail: checked between calls, so one call (<= ~50k tokens) can overshoot the cap.
-    llm: LLM = NullAgent() if a.llm == "null" else OfflinePolicy()
-    meter = None
-    ping = None
-    if a.llm == "http":
-        env = {k: os.getenv(f"OVERNIGHT_LLM_{k}") for k in ("BASE_URL", "API_KEY", "MODEL")}
-        if not all(env.values()):
-            p.error("set OVERNIGHT_LLM_BASE_URL, _API_KEY and _MODEL (see .env.example)")
-        http = HttpLLM(env["BASE_URL"] or "", env["API_KEY"] or "", env["MODEL"] or "")
-        llm = meter = Metered(http, Path("state") / "spend.json")
-        ping = http.ping
+    try:
+        llm, ping = make_llm(a.llm)
+    except ValueError as e:
+        p.error(str(e))
+    meter = llm if isinstance(llm, Metered) else None
     # eval: every run gets a fresh root, so no run sees another one's closed hypotheses;
     # attack-eval: every attack also gets its own copy of the workspace with a planted payload
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"

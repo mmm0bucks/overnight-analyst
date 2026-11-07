@@ -156,6 +156,36 @@ uv run --env-file .env overnight judge-eval --runs 2   # 14 вызовов су�
 дважды». Промпт под эти 7 вариантов не подгонялся: на таком маленьком наборе это была бы
 подгонка под тест. Следующий шаг — больше вариантов и отдельный отложенный набор.
 
+### HTTP API (FastAPI)
+
+Та же ночь, только по HTTP: запустить, спросить статус, забрать отчёт, одобрить. Удобно,
+когда агента зовёт бот, Airflow или другой сервис, а не человек в терминале.
+
+```bash
+uv run overnight serve                    # http://127.0.0.1:8000, документация на /docs
+uv run --env-file .env overnight serve --llm http   # с настоящей моделью
+```
+
+| Запрос | Что делает |
+|---|---|
+| `POST /runs` (тело `{"approve": true}` по желанию) | запускает ночь, сразу отвечает номером (202) |
+| `GET /runs/{id}` | `running`, `waiting`, `ok`, `partial`, `failed` или `error` |
+| `GET /runs/{id}/report` | отчёт в Markdown (409, пока ночь не закончилась) |
+| `POST /runs/{id}/approve`, `/reject` | ответ человека для ночи в `waiting` |
+| `GET /health` | жив ли сервис |
+
+```bash
+id=$(curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
+      -d '{"approve": true}' | jq -r .run_id)
+curl -s localhost:8000/runs/$id            # {"status": "waiting"}
+curl -s -X POST localhost:8000/runs/$id/approve
+curl -s localhost:8000/runs/$id/report
+```
+
+Ночи идут по одной в фоновом потоке: у них общие память, сохранения и ключ модели. Если
+задан `OVERNIGHT_API_TOKEN`, все запросы, кроме `/health`, требуют заголовок `X-API-Key`.
+Общий лимит ключа действует так же, как в CLI. Сервис слушает только `127.0.0.1`.
+
 ### Docker
 
 ```bash
@@ -458,6 +488,36 @@ The judge is strict: it catches every bad variant and names the reason (e.g. "th
 count "15 duplicate response groups in campaign 102" as confirming "responses are recorded
 more than once". The prompt was not tuned to these 7 variants: on a set this small that would
 be fitting to the test. Next: more variants and a separate held-out set.
+
+### HTTP API (FastAPI)
+
+The same night over HTTP: start it, ask how it goes, read the report, approve it. Handy when
+a bot, Airflow or another service calls the agent instead of a person at a terminal.
+
+```bash
+uv run overnight serve                    # http://127.0.0.1:8000, docs at /docs
+uv run --env-file .env overnight serve --llm http   # with a real model
+```
+
+| Request | What it does |
+|---|---|
+| `POST /runs` (optional body `{"approve": true}`) | starts a night, answers with its id at once (202) |
+| `GET /runs/{id}` | `running`, `waiting`, `ok`, `partial`, `failed` or `error` |
+| `GET /runs/{id}/report` | the report as Markdown (409 until the night is over) |
+| `POST /runs/{id}/approve`, `/reject` | the human's answer for a night in `waiting` |
+| `GET /health` | is the service up |
+
+```bash
+id=$(curl -s -X POST localhost:8000/runs -H 'content-type: application/json' \
+      -d '{"approve": true}' | jq -r .run_id)
+curl -s localhost:8000/runs/$id            # {"status": "waiting"}
+curl -s -X POST localhost:8000/runs/$id/approve
+curl -s localhost:8000/runs/$id/report
+```
+
+Nights run one at a time in a background thread: they share memory, checkpoints and the model
+key. If `OVERNIGHT_API_TOKEN` is set, every request but `/health` needs an `X-API-Key` header.
+The key's lifetime cap applies as in the CLI. The service listens on `127.0.0.1` only.
 
 ### Docker
 
