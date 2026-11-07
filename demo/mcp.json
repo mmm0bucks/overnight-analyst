@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "tracker": {"command": "python",
+                "args": ["-m", "overnight.mcp_demo", "tracker",
+                         "--workspace", "{workspace}", "--today", "{today}"]},
+    "wiki": {"command": "python",
+             "args": ["-m", "overnight.mcp_demo", "wiki", "--workspace", "{workspace}"]}
+  },
+  "tools": {
+    "list_tasks": {"server": "tracker"},
+    "list_wiki_pages": {"server": "wiki"},
+    "search_wiki": {"server": "wiki"},
+    "read_wiki": {"server": "wiki"}
+  }
+}

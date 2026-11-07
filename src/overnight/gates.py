@@ -51,8 +51,13 @@ def numbers_in(obj: Any) -> set[float]:
     return set()
 
 
+def _words(text: str) -> str:
+    return " ".join(text.split())
+
+
 def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
-              sources: dict[str, Source], asked: list[str] | None = None) -> list[Gate]:
+              sources: dict[str, Source], asked: dict[str, str] | None = None) -> list[Gate]:
+    """`asked`: the hypotheses given to analyze, id -> statement."""
     by_stage = {name: claims(a) for name, a in arts.items()}
     every = [c for cs in by_stage.values() for c in cs]
 
@@ -74,9 +79,14 @@ def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
     crit = arts.get("critique")
     verdict = crit.verdict if isinstance(crit, CritiqueOut) else "missing"
     analysis = arts.get("analyze")
-    answered = {h.id for h in analysis.hypotheses} if isinstance(analysis, AnalyzeOut) else set()
+    answers = ({h.id: h.statement for h in analysis.hypotheses}
+               if isinstance(analysis, AnalyzeOut) else {})
     # an empty answer passes every other gate: found by running the eval with a null agent
-    skipped = [h for h in asked or [] if h not in answered]
+    skipped = [h for h in asked or {} if h not in answers]
+    # a model once answered 1 asked hypothesis with 11 of its own under reused ids, and memory
+    # took them as verdicts: every answer must be an asked id with the asked statement
+    foreign = [f"{h}: {s[:60]}" for h, s in answers.items() if asked is not None
+               and (h not in asked or _words(s) != _words(asked[h]))]
     return [
         Gate("all_stages_ok", not stage_errors, "; ".join(f"{k}: {v}" for k, v in
                                                           stage_errors.items())),
@@ -87,6 +97,7 @@ def run_gates(arts: dict[str, BaseModel], stage_errors: dict[str, str],
         Gate("critique_not_rejected", verdict in ("accept", "revise"), verdict),
         Gate("no_external_links", not links, "; ".join(links[:3])),
         Gate("every_hypothesis_answered", not skipped, ", ".join(skipped)),
+        Gate("answers_match_the_hypotheses", not foreign, "; ".join(foreign[:5])),
     ]
 
 

@@ -78,6 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--runs", type=int, default=3, help="eval: how many fresh runs")
     p.add_argument("--approve", action="store_true",
                    help="run: wait for `overnight approve` before publishing")
+    p.add_argument("--mcp", type=Path,
+                   help="take tracker and wiki tools from MCP servers in this config "
+                        "(e.g. demo/mcp.json)")
     p.add_argument("--port", type=int, default=8000, help="serve: HTTP port on 127.0.0.1")
     p.add_argument("--run-id", help="resume/approve/reject: the night to continue")
     p.add_argument("--only", help="attack-eval: comma-separated attack ids (default: all)")
@@ -92,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         import uvicorn
 
         from overnight.api import create_app
-        uvicorn.run(create_app(a.root, a.llm), host="127.0.0.1", port=a.port)
+        uvicorn.run(create_app(a.root, a.llm, a.mcp), host="127.0.0.1", port=a.port)
         return 0
     if a.cmd == "init-demo":
         print("warehouse:", demo_data.build(ws / "warehouse.duckdb"))
@@ -174,7 +177,8 @@ def main(argv: list[str] | None = None) -> int:
                         max_tool_calls=int(os.getenv("OVERNIGHT_MAX_TOOL_CALLS", 60)),
                         max_seconds=float(os.getenv("OVERNIGHT_MAX_SECONDS", 900)))
         res = run(job_ws, root, a.vault or root / "vault", llm, limits, a.today, ping, embedder,
-                  approve=a.approve, resume=a.run_id if later else None, decision=decision)
+                  approve=a.approve, resume=a.run_id if later else None, decision=decision,
+                  mcp=a.mcp)
         if meter:
             print(f"tokens: key total {meter.spent}" + (f"/{total}" if total else ""))
         print(f"run {res.run_id}: {res.status}")

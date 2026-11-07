@@ -7,12 +7,15 @@ import json
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
 from overnight.rag import Embedder, HashEmbedder, WikiIndex, chunk_pages
 from overnight.sqlguard import validate
+
+if TYPE_CHECKING:
+    from overnight.mcp_sources import McpSources
 
 NO_ARGS: dict[str, Any] = {"type": "object", "properties": {}}
 SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
@@ -58,13 +61,15 @@ class Source:
 
 class Toolbox:
     def __init__(self, workspace: Path, today: date, sql_per_stage: int = 8,
-                 max_rows: int = 1000, embedder: Embedder | None = None) -> None:
+                 max_rows: int = 1000, embedder: Embedder | None = None,
+                 remote: McpSources | None = None) -> None:
         self.ws, self.today = workspace, today
         self.embedder = embedder or HashEmbedder()
         self.index: WikiIndex | None = None  # built on first search
         self.sql_per_stage, self.max_rows, self.sql_left = sql_per_stage, max_rows, sql_per_stage
         self.sources: dict[str, Source] = {}
         self.seen: dict[str, str] = {}  # call -> source id, within the current stage
+        self.remote = remote  # tracker and wiki tools served over MCP, if configured
 
     def new_stage(self) -> None:
         self.sql_left, self.seen = self.sql_per_stage, {}
@@ -86,7 +91,10 @@ class Toolbox:
             return json.dumps({"error": f"already returned above as {self.seen[key]}; "
                                         "use it instead of calling again"})
         try:
-            result = getattr(self, name)(**args)
+            if self.remote and name in self.remote.tools:
+                result = self.remote.call(name, args)
+            else:
+                result = getattr(self, name)(**args)
         except Exception as e:
             return json.dumps({"error": f"{type(e).__name__}: {e}"})
         sid = f"S{len(self.sources) + 1}"

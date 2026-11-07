@@ -25,6 +25,8 @@ overnight run
 
 | Module | Responsibility |
 |---|---|
+| `mcp_sources.py` | the agent as an MCP client: tracker and wiki from MCP servers, read-only allowlist |
+| `mcp_demo.py` | two demo MCP servers (tracker and wiki) over the demo files |
 | `api.py` | HTTP API (FastAPI): start a night, status, report, approval |
 | `orchestrator.py` | preflight, stage order (a LangGraph graph), failure isolation, artifacts, events log |
 | `stages.py` | output contracts (pydantic), role prompts, allowed tools per stage |

@@ -29,6 +29,7 @@ from langgraph.types import Command, interrupt
 from overnight.agent import Budget, BudgetExceeded, Limits, StageFailed, run_stage
 from overnight.gates import Gate, run_gates, status
 from overnight.llm import LLM, LLMError
+from overnight.mcp_sources import McpSources
 from overnight.publisher import publish
 from overnight.rag import Embedder
 from overnight.stages import STAGES, AnalyzeOut, Stage, SynthesizeOut
@@ -104,9 +105,11 @@ class RunResult:
 def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, today: date,
         ping: Callable[[], None] | None = None, embedder: Embedder | None = None, *,
         approve: bool = False, resume: str | None = None,
-        decision: bool | None = None, run_id: str | None = None) -> RunResult:
+        decision: bool | None = None, run_id: str | None = None,
+        mcp: Path | None = None) -> RunResult:
     """One night. `resume` continues a saved run by id (after a crash, or with the human's
-    `decision` when it waits for approval). `run_id` lets a caller know the id up front."""
+    `decision` when it waits for approval). `run_id` lets a caller know the id up front.
+    `mcp` is a config of MCP servers for the tracker and wiki tools (see mcp_sources.py)."""
     run_id = resume or run_id or new_run_id()
     run_dir = root / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=bool(resume))
@@ -170,25 +173,36 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
         today = date.fromisoformat(before["today"])
     budget, box = Budget(limits), Toolbox(workspace, today, limits.max_sql_per_stage,
                                           limits.max_sql_rows, embedder)
-    if before:  # carry over what the crashed or paused part already did
-        box.sources = {k: Source(**v) for k, v in before["sources"].items()}
-        budget.tokens, budget.tool_calls = before["usage"]["tokens"], before["usage"]["tool_calls"]
-        emit({"event": "resumed", "from": list(saved().next), "decision": decision})
-        night = graph.invoke(None if decision is None else Command(resume=decision), config)
-    else:
-        missing = [f for f in REQUIRED if not (workspace / f).exists()]
-        try:
-            if missing:
-                raise RuntimeError(f"workspace incomplete: {', '.join(missing)} "
-                                   "(run `overnight init-demo`)")
-            if ping:
-                ping()
-        except Exception as e:  # preflight failed: skip stages, still publish a note
-            errors["preflight"] = str(e)
-        night = graph.invoke({"arts": {}, "errors": errors, "stop": False, "revisions": 0,
-                              "today": today.isoformat(), "sources": {},
-                              "usage": {"tokens": 0, "tool_calls": 0},
-                              "approve": approve, "approved": None}, config)
+    try:  # tracker and wiki over MCP, if configured; a source that does not start fails
+        box.remote = McpSources.load(mcp, workspace, today) if mcp else None  # the preflight
+    except Exception as e:
+        if before:
+            raise
+        errors["preflight"] = f"MCP sources: {e}"
+    try:
+        if before:  # carry over what the crashed or paused part already did
+            box.sources = {k: Source(**v) for k, v in before["sources"].items()}
+            budget.tokens = before["usage"]["tokens"]
+            budget.tool_calls = before["usage"]["tool_calls"]
+            emit({"event": "resumed", "from": list(saved().next), "decision": decision})
+            night = graph.invoke(None if decision is None else Command(resume=decision), config)
+        else:
+            missing = [f for f in REQUIRED if not (workspace / f).exists()]
+            try:
+                if missing:
+                    raise RuntimeError(f"workspace incomplete: {', '.join(missing)} "
+                                       "(run `overnight init-demo`)")
+                if ping:
+                    ping()
+            except Exception as e:  # preflight failed: skip stages, still publish a note
+                errors["preflight"] = str(e)
+            night = graph.invoke({"arts": {}, "errors": errors, "stop": False, "revisions": 0,
+                                  "today": today.isoformat(), "sources": {},
+                                  "usage": {"tokens": 0, "tool_calls": 0},
+                                  "approve": approve, "approved": None}, config)
+    finally:
+        if box.remote:
+            box.remote.close()
     if saved().next:  # paused before publishing: nothing is written to the vault yet
         emit({"event": "waiting_for_approval", "report": night["arts"].get("synthesize")})
         log.close()
@@ -198,7 +212,7 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
     arts = {s.name: s.schema.model_validate(night["arts"][s.name])
             for s in STAGES if s.name in night["arts"]}
 
-    gates = run_gates(arts, errors, box.sources, [h["id"] for h in open_hyps])
+    gates = run_gates(arts, errors, box.sources, {h["id"]: h["statement"] for h in open_hyps})
     if night["approved"] is not None:
         gates.append(Gate("human_approved", night["approved"],
                           "" if night["approved"] else "rejected at approval"))
@@ -206,7 +220,7 @@ def run(workspace: Path, root: Path, vault: Path, llm: LLM, limits: Limits, toda
     analysis = arts.get("analyze")
     if result == "ok" and isinstance(analysis, AnalyzeOut):  # only trusted runs update memory
         found = {h.id: h.status for h in analysis.hypotheses}
-        for h in hypotheses:
+        for h in open_hyps:  # only what was asked: closed hypotheses are not re-decided here
             if h["id"] in found:
                 h.update(status=found[h["id"]], last_checked=today.isoformat())
     usage = {**budget.usage(), "revisions": night["revisions"]}

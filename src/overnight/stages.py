@@ -81,7 +81,9 @@ STAGES = [
     Stage("analyze", "You are the analyst. Check each hypothesis in the input with read-only "
           "SQL and mark it confirmed, rejected or inconclusive. Use the wiki for definitions. "
           "A suggested_sql is only a hint and can be wrong: check that the query tests exactly "
-          "the statement. Inconclusive means the warehouse has no data to test it.",
+          "the statement. Inconclusive means the warehouse has no data to test it. Answer "
+          "exactly the input hypotheses, with their id and statement copied unchanged; "
+          "add no hypotheses of your own.",
           ["list_wiki_pages", "search_wiki", "read_wiki", "run_sql"], AnalyzeOut,
           ["collect", "hypotheses"]),
     Stage("synthesize", "You are the editor. Turn the input into a short morning report. "

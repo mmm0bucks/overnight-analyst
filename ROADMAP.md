@@ -15,7 +15,7 @@ Each item is planned as a separate pull request.
 - [ ] More judge variants and a held-out set
 - [x] LangGraph over our own gates: rewrite loop, checkpoints and resume, human approval (ADR 0004)
 - [x] FastAPI: start a night, status, report, approval over HTTP
-- [ ] MCP server for the read-only tools
+- [x] Tracker and wiki over MCP: the agent is a client, demo servers, read-only allowlist
 - [ ] OpenTelemetry GenAI trace export (view in Phoenix)
 - [ ] Per-stage wall-clock timeout (run stages in a subprocess, kill on timeout)
 - [ ] Code sandbox for analysis scripts: plan → hash-confirmed execution → AST/runtime guards
