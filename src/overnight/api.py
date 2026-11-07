@@ -29,7 +29,7 @@ class Start(BaseModel):
     approve: bool = False  # wait for POST /runs/{id}/approve before publishing
 
 
-def create_app(root: Path, llm_kind: str = "offline") -> FastAPI:
+def create_app(root: Path, llm_kind: str = "offline", mcp: Path | None = None) -> FastAPI:
     llm, ping = make_llm(llm_kind)
     token = os.getenv("OVERNIGHT_API_TOKEN")
     pool = ThreadPoolExecutor(max_workers=1)  # one night at a time
@@ -50,7 +50,7 @@ def create_app(root: Path, llm_kind: str = "offline") -> FastAPI:
             per_run = min(per_run, total - llm.spent)
         limits = Limits(max_tokens=per_run)
         jobs[key] = pool.submit(run, root / "demo", root, root / "vault", llm, limits,
-                                date.today(), ping, **kw)
+                                date.today(), ping, mcp=mcp, **kw)
         return jobs[key]
 
     def state(run_id: str) -> dict[str, Any]:

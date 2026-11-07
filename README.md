@@ -156,6 +156,43 @@ uv run --env-file .env overnight judge-eval --runs 2   # 14 вызовов су�
 дважды». Промпт под эти 7 вариантов не подгонялся: на таком маленьком наборе это была бы
 подгонка под тест. Следующий шаг — больше вариантов и отдельный отложенный набор.
 
+### Трекер и вики через MCP
+
+Агент может брать задачи и вики не из файлов, а с MCP-серверов: как в компании, где задачи
+в Jira, а вики в Confluence. В демо это два маленьких сервера поверх тех же файлов
+(`overnight/mcp_demo.py`), а агент — их MCP-клиент:
+
+```bash
+uv run overnight run --mcp demo/mcp.json
+```
+
+`demo/mcp.json` говорит, какие серверы запустить и какой из наших инструментов чем закрыть.
+Чтобы подключить настоящие Jira и Confluence, достаточно поменять конфиг, код агента не
+меняется. Пример для открытого сервера `mcp-atlassian` (имена инструментов и аргументов
+проверьте у своего сервера):
+
+```json
+{"servers": {"atlassian": {"command": "uvx", "args": ["mcp-atlassian"]}},
+ "tools": {"list_tasks": {"server": "atlassian", "tool": "jira_search",
+                          "fixed": {"jql": "project = DATA AND status != Done"}},
+           "search_wiki": {"server": "atlassian", "tool": "confluence_search"},
+           "read_wiki": {"server": "atlassian", "tool": "confluence_get_page",
+                         "rename": {"page": "page_id"}}}}
+```
+
+Что держит агента в рамках:
+
+* Доступны только инструменты из конфига. Всё остальное, что умеет сервер (создать задачу,
+  оставить комментарий), модель не видит вообще.
+* Инструмент из конфига, который сервер помечает как пишущий или чьё имя говорит о записи
+  (`create`, `update`, `comment`…), отклоняется при старте.
+* Ответы серверов проходят через тот же `Toolbox`: получают номер источника и помечаются
+  `<untrusted_data>`. Red-team набор через MCP (офлайн): успешных атак 0 из 5. На
+  реальной модели (`eval --mcp`, 07.11): 9 из 9 гипотез, статус `ok`, 72 тыс. токенов.
+* SQL через MCP не ходит: база остаётся локальной, за проверкой SQL.
+* Сервер, который не запустился, — это проваленный preflight: ночь публикует заметку
+  `failed`, а не молчит.
+
 ### HTTP API (FastAPI)
 
 Та же ночь, только по HTTP: запустить, спросить статус, забрать отчёт, одобрить. Удобно,
@@ -249,6 +286,7 @@ preflight → collect → analyze → synthesize → critique → finalize (пр
 | Бесконечный цикл или перерасход | лимит токенов, вызовов и времени перед каждым вызовом; лимит ходов | `test_agent.py` |
 | Нестабильный API | повтор при 429/5xx с паузами 2/4/8 с; остальные 4xx не повторяются | `test_llm_http.py` |
 | Плохой прогон портит память | список гипотез обновляется, только если прошли все проверки | `test_pipeline.py` |
+| Модель подменяет гипотезы своими под теми же номерами | ответы должны совпадать с заданными гипотезами по номеру и формулировке; память меняется только по заданным | `test_pipeline.py` |
 | Никто не заметил упавшую ночь | при сбое preflight всё равно публикуется заметка `failed` | `test_pipeline.py` |
 | Два прогона за день затирают друг друга | уникальный `run_id`, а не дата | `test_pipeline.py` |
 | Перезаписаны заметки человека | маркеры управляемого блока, атомарная запись + бэкап | `test_publisher.py` |
@@ -489,6 +527,42 @@ count "15 duplicate response groups in campaign 102" as confirming "responses ar
 more than once". The prompt was not tuned to these 7 variants: on a set this small that would
 be fitting to the test. Next: more variants and a separate held-out set.
 
+### Tracker and wiki over MCP
+
+The agent can take tasks and wiki pages from MCP servers instead of files, as in a company
+where tasks live in Jira and pages in Confluence. In the demo these are two small servers over
+the same files (`overnight/mcp_demo.py`), and the agent is their MCP client:
+
+```bash
+uv run overnight run --mcp demo/mcp.json
+```
+
+`demo/mcp.json` says which servers to start and which of our tools each one provides. To plug
+in the real Jira and Confluence you change the config, not the agent. An example for the open
+`mcp-atlassian` server (check tool and argument names against your server):
+
+```json
+{"servers": {"atlassian": {"command": "uvx", "args": ["mcp-atlassian"]}},
+ "tools": {"list_tasks": {"server": "atlassian", "tool": "jira_search",
+                          "fixed": {"jql": "project = DATA AND status != Done"}},
+           "search_wiki": {"server": "atlassian", "tool": "confluence_search"},
+           "read_wiki": {"server": "atlassian", "tool": "confluence_get_page",
+                         "rename": {"page": "page_id"}}}}
+```
+
+What keeps the agent in bounds:
+
+* Only tools named in the config are reachable. Whatever else a server offers (create an
+  issue, post a comment) is never shown to the model.
+* A configured tool that the server marks as writing, or whose name says it writes
+  (`create`, `update`, `comment`…), is refused at start.
+* Server answers go through the same `Toolbox`: numbered as sources and wrapped in
+  `<untrusted_data>`. The red-team set over MCP (offline): 0 of 5 attacks succeed. On a
+  real model (`eval --mcp`, Nov 7): 9/9 hypotheses, status `ok`, 72k tokens.
+* SQL never goes over MCP: the warehouse stays local, behind the SQL guard.
+* A server that does not start is a failed preflight: the night publishes a `failed` note
+  instead of staying silent.
+
 ### HTTP API (FastAPI)
 
 The same night over HTTP: start it, ask how it goes, read the report, approve it. Handy when
@@ -580,6 +654,7 @@ Details: [docs/architecture.md](docs/architecture.md) · decisions: [docs/decisi
 | Runaway cost or loop | token / tool-call / time budget checked before every call; max turns | `test_agent.py` |
 | Flaky endpoint | retry 429/5xx with 2/4/8 s backoff; never retry other 4xx | `test_llm_http.py` |
 | Bad run corrupts memory | backlog updated only when all gates pass | `test_pipeline.py` |
+| The model swaps in its own hypotheses under the same ids | answers must match the asked hypotheses by id and statement; memory changes only for asked ones | `test_pipeline.py` |
 | Nobody notices a failed night | preflight failure still publishes a "failed" note | `test_pipeline.py` |
 | Two runs on one day overwrite each other | unique `run_id`, never date-keyed | `test_pipeline.py` |
 | Human notes overwritten | managed block markers, atomic write + backup | `test_publisher.py` |

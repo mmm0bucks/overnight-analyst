@@ -175,3 +175,29 @@ def test_night_waits_for_a_human_before_publishing(ws: Path, decision: bool,
     assert done.status == status and done.report is not None
     gate = next(g for g in done.gates if g.name == "human_approved")
     assert gate.passed is decision
+
+
+class Inventor(OfflinePolicy):
+    """Answers the asked hypotheses and slips in a verdict on a closed one (seen on a model)."""
+
+    def analyze(self, inputs: dict[str, Any], results: list[Any]) -> LLMResponse:
+        resp = super().analyze(inputs, results)
+        if resp.tool_calls:
+            return resp
+        out = json.loads(resp.content)
+        proof = out["hypotheses"][0]["evidence"]  # cited and traceable, so only the new
+        out["hypotheses"].append({"id": "H4", "statement": "12 responses come before contact",
+                                  "status": "confirmed", "evidence": proof})  # gate can fail
+        return LLMResponse(content=json.dumps(out))
+
+
+def test_invented_answers_fail_and_do_not_touch_memory(ws: Path) -> None:
+    hyps = json.loads((ws / "hypotheses.json").read_text(encoding="utf-8"))
+    for h in hyps:
+        h["status"] = "rejected" if h["id"] == "H4" else "open"  # H4 is already closed
+    (ws.parent / "state").mkdir()
+    (ws.parent / "state" / "hypotheses.json").write_text(json.dumps(hyps), encoding="utf-8")
+    res = _run(ws, Inventor())
+    gate = next(g for g in res.gates if g.name == "answers_match_the_hypotheses")
+    assert res.status == "partial" and not gate.passed and gate.detail.startswith("H4")
+    assert _state(ws)["H4"] == "rejected"  # the closed hypothesis kept its verdict
