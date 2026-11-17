@@ -1,0 +1,18 @@
+# Секреты и локальные настройки (К10)
+config/local.env
+*.keytab
+*.pem
+
+# Прогоны, журналы, выгрузки данных
+runs/
+logs/
+exports/
+*.csv
+*.xlsx
+*.parquet
+
+# Выводы ноутбуков и служебное
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.venv/

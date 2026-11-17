@@ -1,0 +1,17 @@
+#!/bin/sh
+# Push только на адрес из config/allowed_remote.txt (правило К2).
+# Файла нет или он пустой — push запрещён совсем.
+# Адрес вписывает владелец, когда создаст внутренний репозиторий.
+
+remote_url="$2"
+allowed_url=$(tr -d '[:space:]' < config/allowed_remote.txt 2>/dev/null)
+
+if [ -z "$allowed_url" ]; then
+  echo "push запрещён: разрешённый адрес не задан (config/allowed_remote.txt, К2)" >&2
+  exit 1
+fi
+
+if [ "$remote_url" != "$allowed_url" ]; then
+  echo "push запрещён: $remote_url не совпадает с разрешённым адресом (К2)" >&2
+  exit 1
+fi
