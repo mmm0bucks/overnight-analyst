@@ -106,9 +106,9 @@
 | `AGENTS.md`, `constitution.md`, `00-overview.md` | есть |
 | `evals/questions.md` | есть |
 | `playbooks/00-audit/`, `playbooks/REPORT.md` | есть |
-| `blueprint/03`, `05`, `06` | есть |
-| `blueprint/01`, `02`, `04`, `07`, `08` | в работе |
-| остальные плейбуки, `skills/`, `agents/`, `policy/`, `examples/pyspark/` | в работе |
+| `blueprint/03`, `04`, `05`, `06`, `08`, `agents/` | есть |
+| `blueprint/01`, `02`, `07` | в работе |
+| остальные плейбуки, `skills/`, `policy/`, `examples/pyspark/`, `evals/attacks/` | в работе |
 
 ## Если ты правишь сам этот репозиторий
 
