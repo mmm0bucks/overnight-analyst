@@ -13,6 +13,7 @@
    | Откуда | Куда |
    |---|---|
    | `dot-gitignore` | `.gitignore` |
+   | `dot-gitattributes` | `.gitattributes` |
    | `AGENTS.md` | `AGENTS.md` |
    | `tools/hooks/pre-commit`, `tools/hooks/pre-push` | `tools/hooks/` |
    | `config/allowed_remote.txt` (пустой) | `config/allowed_remote.txt` |

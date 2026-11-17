@@ -1,0 +1,6 @@
+# Хуки и скрипты на sh всегда с LF: с CRLF строка #!/bin/sh не работает.
+tools/hooks/* text eol=lf
+*.sh text eol=lf
+
+# Остальной текст хранится в git с LF.
+* text=auto

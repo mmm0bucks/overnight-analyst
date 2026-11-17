@@ -1,0 +1,121 @@
+# Политика ночного агента.
+# Правила [[rule]] проверяются по порядку, срабатывает последнее подходящее.
+# [[hard_deny]] сильнее любых правил и одобрений.
+# Менять файл может только владелец. После правки утвердить заново:
+#   python src/orchestrator/check_policy.py --approve
+#
+# Поля правила:
+#   action    действие, можно с * (kernel.* — все действия kernel)
+#   resource  путь или имя ресурса, можно с *; нет поля — любой
+#   roles     список ролей; нет поля — любая роль
+#   when      флаг сессии: untrusted_read (читала чужой текст), internal_read (читала внутренние данные)
+#   effect    allow, ask или deny (только в [[rule]])
+#
+# Действия: kb.read, kb.propose, catalog.read, file.read, file.write,
+#   wiki.read, tracker.read, notebook.read, web.search,
+#   kernel.run_read, kernel.run_write, shell.run, external.write, package.install, git.push
+
+# Сначала всё запрещено.
+[[rule]]
+action = "*"
+effect = "deny"
+
+# Чтение своего: всем ролям.
+[[rule]]
+action = "kb.read"
+effect = "allow"
+
+[[rule]]
+action = "catalog.read"
+effect = "allow"
+
+[[rule]]
+action = "file.read"
+effect = "allow"
+
+# Чужой текст читают только разведчики.
+[[rule]]
+action = "wiki.read"
+roles = ["scout"]
+effect = "allow"
+
+[[rule]]
+action = "tracker.read"
+roles = ["scout"]
+effect = "allow"
+
+[[rule]]
+action = "notebook.read"
+roles = ["scout"]
+effect = "allow"
+
+# Веб-поиск — только веб-разведчик (К1).
+[[rule]]
+action = "web.search"
+roles = ["web-scout"]
+effect = "allow"
+
+# Код на чтение — аналитик и проверяющий.
+[[rule]]
+action = "kernel.run_read"
+roles = ["analyst", "verifier"]
+effect = "allow"
+
+# Код с записью — только с одобрением владельца.
+# Ночью это очередь; одобренный заранее хеш проверяет брокер (этап 5).
+[[rule]]
+action = "kernel.run_write"
+roles = ["analyst"]
+effect = "ask"
+
+# Запись файлов — только в папку прогонов.
+[[rule]]
+action = "file.write"
+resource = "runs/*"
+roles = ["lead", "analyst"]
+effect = "allow"
+
+[[rule]]
+action = "kb.propose"
+roles = ["librarian"]
+effect = "allow"
+
+# Запреты, которые не открываются ничем.
+[[hard_deny]]
+action = "external.write"
+
+[[hard_deny]]
+action = "package.install"
+
+[[hard_deny]]
+action = "git.push"
+
+[[hard_deny]]
+action = "file.write"
+resource = "config/*"
+
+[[hard_deny]]
+action = "file.write"
+resource = "constitution.md"
+
+[[hard_deny]]
+action = "file.write"
+resource = "agents/*"
+
+[[hard_deny]]
+action = "file.write"
+resource = "tools/*"
+
+# Сессия, читавшая чужой текст, не запускает код и не пишет (К9).
+[[hard_deny]]
+action = "kernel.*"
+when = "untrusted_read"
+
+[[hard_deny]]
+action = "file.write"
+when = "untrusted_read"
+
+# Сессия, видевшая внутренние данные, не ходит в веб (К1, К9).
+[[hard_deny]]
+action = "web.search"
+when = "internal_read"
