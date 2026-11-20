@@ -11,7 +11,7 @@
 #   when      флаг сессии: untrusted_read (читала чужой текст), internal_read (читала внутренние данные)
 #   effect    allow, ask или deny (только в [[rule]])
 #
-# Действия: kb.read, kb.propose, catalog.read, file.read, file.write, sample.read, role.call,
+# Действия: kb.read, kb.propose, catalog.read, metadata.read, file.read, file.write, sample.read, role.call,
 #   wiki.read, tracker.read, notebook.read, web.search,
 #   kernel.run_read, kernel.run_write, shell.run, external.write, package.install, git.push
 
@@ -46,6 +46,12 @@ roles = ["lead"]
 effect = "allow"
 
 # Чужой текст читают только разведчики.
+# metadata.read — описания в каталоге метаданных и data governance: их пишут люди.
+[[rule]]
+action = "metadata.read"
+roles = ["scout"]
+effect = "allow"
+
 [[rule]]
 action = "wiki.read"
 roles = ["scout"]

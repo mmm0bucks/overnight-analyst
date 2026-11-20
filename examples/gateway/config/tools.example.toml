@@ -55,6 +55,16 @@ action = "kb.propose"
 [tools.call_role]
 action = "role.call"
 
+[tools.metadata_search]
+action = "metadata.read"
+untrusted = true
+internal = true
+
+[tools.metadata_read]
+action = "metadata.read"
+untrusted = true
+internal = true
+
 [tools.wiki_search]
 action = "wiki.read"
 untrusted = true
