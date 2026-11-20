@@ -3,7 +3,7 @@ name: code-reviewer
 description: Проверяет ячейки аналитика до того, как они попадут в итоговый ноутбук или будут запущены на запись. Две оси — простота и соответствие плану — плюс опасные операции.
 untrusted_input: false
 kernel: none
-tools: [notebook_read, plan_read, catalog_read]
+tools: [task_notebook_read, plan_read, catalog_read]
 writes: []
 max_steps: 15
 max_minutes: 15

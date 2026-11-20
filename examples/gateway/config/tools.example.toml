@@ -1,0 +1,89 @@
+# Какой инструмент какому действию политики соответствует.
+# Шлюз проверяет по политике действие, а не имя инструмента.
+# Инструмента нет в этом списке — вызов запрещён.
+#
+# resource: что подставить как ресурс; "{path}" — путь из аргумента path.
+# untrusted: результат — чужой текст (сессия получает флаг untrusted_read).
+# internal: результат — внутренние данные (сессия получает флаг internal_read).
+
+[tools.kb_search]
+action = "kb.read"
+internal = true
+
+[tools.kb_read]
+action = "kb.read"
+internal = true
+
+[tools.catalog_read]
+action = "catalog.read"
+internal = true
+
+[tools.plan_read]
+action = "file.read"
+resource = "{path}"
+internal = true
+
+[tools.artifact_read]
+action = "file.read"
+resource = "{path}"
+internal = true
+
+[tools.task_notebook_read]
+action = "file.read"
+resource = "{path}"
+internal = true
+
+[tools.plan_write_status]
+action = "file.write"
+resource = "{path}"
+
+[tools.progress_write]
+action = "file.write"
+resource = "{path}"
+
+[tools.notebook_write_cell]
+action = "file.write"
+resource = "{path}"
+
+[tools.sample_read]
+action = "sample.read"
+internal = true
+
+[tools.kb_propose]
+action = "kb.propose"
+
+[tools.call_role]
+action = "role.call"
+
+[tools.wiki_search]
+action = "wiki.read"
+untrusted = true
+internal = true
+
+[tools.wiki_read]
+action = "wiki.read"
+untrusted = true
+internal = true
+
+[tools.tracker_search]
+action = "tracker.read"
+untrusted = true
+internal = true
+
+[tools.tracker_read]
+action = "tracker.read"
+untrusted = true
+internal = true
+
+[tools.notebook_read]
+action = "notebook.read"
+untrusted = true
+internal = true
+
+[tools.web_search]
+action = "web.search"
+untrusted = true
+
+[tools.broker_run]
+action = "kernel.run_read"
+internal = true

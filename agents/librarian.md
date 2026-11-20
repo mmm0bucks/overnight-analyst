@@ -3,7 +3,7 @@ name: librarian
 description: Предлагает факты для базы знаний по итогам задачи — что пригодится в других задачах. Вызывается ведущим в конце задачи или после важной находки.
 untrusted_input: false
 kernel: none
-tools: [kb_search, kb_read, plan_read, artifact_read]
+tools: [kb_search, kb_read, plan_read, artifact_read, kb_propose]
 writes: [предложения для публикатора]
 max_steps: 15
 max_minutes: 15

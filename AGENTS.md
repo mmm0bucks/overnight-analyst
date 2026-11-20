@@ -101,6 +101,8 @@
 | `examples/pyspark/` | образцы простого кода и карточки приёмов | перед написанием расчёта |
 | `examples/repo-skeleton/` | файлы для нового репозитория: `.gitignore`, хуки, образец конфига | плейбук 01 |
 | `examples/policy/` | политика, проверка при старте, тесты | плейбук 02 |
+| `examples/gateway/` | шлюз инструментов, карта инструментов, тесты | плейбук 03 |
+| `examples/roles/` | проверка ролей, все проверки перед стартом, тесты | плейбук 04 |
 | `evals/` | контрольные вопросы, набор атак, проверочные наборы; ключ с ответами хранится у владельца вне репозитория | при проверке |
 
 ## Состояние разделов
@@ -111,10 +113,10 @@
 |---|---|
 | `AGENTS.md`, `constitution.md`, `00-overview.md` | есть |
 | `evals/questions.md` | есть |
-| `BUILD.md`, `playbooks/00-audit/`, `01-repo/`, `01a-gitattributes/`, `02-policy/`, `playbooks/REPORT.md`, `examples/repo-skeleton/`, `examples/policy/` | есть |
+| `BUILD.md`, `playbooks/00-audit/`, `01-repo/`, `01a-gitattributes/`, `02-policy/`, `03-gateway/`, `04-roles/`, `playbooks/REPORT.md`, `examples/repo-skeleton/`, `examples/policy/`, `examples/gateway/`, `examples/roles/` | есть |
 | `blueprint/03`, `04`, `05`, `06`, `08`, `agents/` | есть |
 | `blueprint/01`, `02`, `07` | в работе |
-| плейбуки 03–09, `skills/`, `examples/pyspark/`, `evals/attacks/` | в работе |
+| плейбуки 05–09, `skills/`, `examples/pyspark/`, `evals/attacks/` | в работе |
 
 ## Если ты правишь сам этот репозиторий
 
